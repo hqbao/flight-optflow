@@ -13,9 +13,9 @@
 #include <math.h>
 #include "platform.h"
 
-#define ALT_ENABLED 0
+#define ALT_ENABLED 1
 #define OUTPUT_UART 1
-#define OUTPUT_DEBUG 1
+#define OUTPUT_DEBUG 0
 
 #define TAG "main.c"
 
@@ -159,15 +159,16 @@ static void calc_optflow(void) {
   g_frame_captured = 0;
 
   float clearity = 0;
-  float dx = 0;
-  float dy = 0;
-  optflow_calc(g_frame, &dy, &dx, &clearity);
+  float dx_mm = 0;
+  float dy_mm = 0;
+  float rotation = 0;
+  int mode = 0;
+  
+  optflow_calc(g_frame, &dy_mm, &dx_mm, &rotation, &clearity, &mode);
 
-  float coef = 1000.0 / (clearity + 0.00001);
-  dx = dx * coef;
-  dy = -dy * coef;
-  g_optflow.dx = LIMIT(dx, -100, 100);
-  g_optflow.dy = LIMIT(dy, -100, 100);
+  // Output is now in mm/frame, convert to output units if needed
+  g_optflow.dx = LIMIT(-dx_mm, -100, 100);
+  g_optflow.dy = LIMIT(dy_mm, -100, 100);
   g_optflow.z_raw = g_optflow.z_alt;
 
   int dx_int = g_optflow.dx;
@@ -180,9 +181,9 @@ static void calc_optflow(void) {
   t_prev = t1;
   int f_actual = 1000000/dt_actual;
 
-  ESP_LOGI(TAG, "$%d\t%d\t%d\t%f\t%d",
+  ESP_LOGI(TAG, "$%d\t%d\t%d\t%f\t%f\t%d\t%d",
     (int)(dx_int), (int)(dy_int), (int)(g_optflow.z_raw), 
-    clearity, f_actual);
+    clearity, rotation, f_actual, mode);
 #endif
 
   // Output data
@@ -318,7 +319,7 @@ static void core1() {
 #endif
 
   // Init optical flow
-  optflow_init(WIDTH, HEIGHT);
+  optflow_init(WIDTH, HEIGHT, 1);  // 1=hybrid mode, 0=dense only
 
   while (1) {
     if (g_frame_captured > 0) {
