@@ -13,9 +13,9 @@
 #include <math.h>
 #include "platform.h"
 
-#define ALT_ENABLED 1
+#define ALT_ENABLED 0
 #define OUTPUT_UART 1
-#define OUTPUT_DEBUG 0
+#define OUTPUT_DEBUG 1
 
 #define TAG "main.c"
 
