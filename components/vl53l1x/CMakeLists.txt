@@ -1,0 +1,16 @@
+idf_component_register(SRCS 
+                    "core/src/vl53l1_api_calibration.c"
+                    "core/src/vl53l1_api_core.c"
+                    "core/src/vl53l1_api_debug.c"
+                    "core/src/vl53l1_api_preset_modes.c"
+                    "core/src/vl53l1_api_strings.c"
+                    "core/src/vl53l1_api.c"
+                    "core/src/vl53l1_core_support.c"
+                    "core/src/vl53l1_core.c"
+                    "core/src/vl53l1_error_strings.c"
+                    "core/src/vl53l1_register_funcs.c"
+                    "core/src/vl53l1_silicon_core.c"
+                    "core/src/vl53l1_wait.c"
+                    "platform/src/vl53l1_platform.c"
+                    INCLUDE_DIRS "." "core/inc" "platform/inc"
+                    REQUIRES driver nvs_flash) 
