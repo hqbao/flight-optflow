@@ -13,8 +13,8 @@
 #include <math.h>
 #include "platform.h"
 
-#define ALT_ENABLED 1
-#define OUTPUT_UART 1
+#define ALT_ENABLED 0
+#define OUTPUT_UART 2
 #define OUTPUT_DEBUG 0
 
 #define TAG "main.c"
@@ -319,7 +319,7 @@ static void core1() {
 #endif
 
   // Init optical flow
-  optflow_init(WIDTH, HEIGHT, 1);  // 1=hybrid mode, 0=dense only
+  optflow_init(WIDTH, HEIGHT, 0);  // 1=hybrid mode, 0=dense only
 
   while (1) {
     if (g_frame_captured > 0) {
