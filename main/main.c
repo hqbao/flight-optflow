@@ -13,8 +13,8 @@
 #include <math.h>
 #include "platform.h"
 
-#define ALT_ENABLED 0
-#define OUTPUT_UART 2
+#define ALT_ENABLED 1
+#define OUTPUT_UART 1
 #define OUTPUT_DEBUG 0
 
 #define TAG "main.c"
@@ -51,14 +51,6 @@
 #define FRAME_FREQ 25
 
 typedef struct {
-  int16_t dx;
-  int16_t dy;
-  int16_t dz;
-  int64_t z_raw;
-  int16_t z_alt;
-} optflow_t;
-
-typedef struct {
   uint8_t byte;
   uint8_t buffer[128];
   uint8_t header[2];
@@ -72,7 +64,7 @@ static TaskHandle_t task_handle_2 = NULL;
 
 static volatile char g_frame_captured = 0;
 
-static volatile optflow_t g_optflow = {0, 0, 0, 0, 0};
+static volatile double g_z_alt = 0;
 
 static uint8_t g_frame[WIDTH*HEIGHT] = {0,};
 
@@ -166,13 +158,10 @@ static void calc_optflow(void) {
   
   optflow_calc(g_frame, &dy_mm, &dx_mm, &rotation, &clearity, &mode);
 
-  // Output is now in mm/frame, convert to output units if needed
-  g_optflow.dx = LIMIT(-dx_mm, -100, 100);
-  g_optflow.dy = LIMIT(dy_mm, -100, 100);
-  g_optflow.z_raw = g_optflow.z_alt;
-
-  int dx_int = g_optflow.dx;
-  int dy_int = g_optflow.dy;
+  // Scale up to preserve precision when casting to int
+  int dx_int = (int)(-dx_mm * 1000);
+  int dy_int = (int)(dy_mm * 1000);
+  int z_raw_int = g_z_alt;
 
 #if OUTPUT_DEBUG == 1
   static int64_t t_prev = 0;
@@ -181,8 +170,8 @@ static void calc_optflow(void) {
   t_prev = t1;
   int f_actual = 1000000/dt_actual;
 
-  ESP_LOGI(TAG, "$%d\t%d\t%d\t%f\t%f\t%d\t%d",
-    (int)(dx_int), (int)(dy_int), (int)(g_optflow.z_raw), 
+  ESP_LOGI(TAG, "$%f\t%f\t%d\t%f\t%f\t%d\t%d", 
+    -dx_mm, dy_mm, z_raw_int, 
     clearity, rotation, f_actual, mode);
 #endif
 
@@ -202,10 +191,11 @@ static void calc_optflow(void) {
 #endif
 
 #if OUTPUT_UART > 0
-  int z_raw_int = g_optflow.z_raw;
+  int clearity_int = (int)(clearity * 10);
   memcpy(&g_db_msg[buf_idx], (void*)&dx_int, 4); buf_idx += 4;
   memcpy(&g_db_msg[buf_idx], (void*)&dy_int, 4); buf_idx += 4;
   memcpy(&g_db_msg[buf_idx], (void*)&z_raw_int, 4); buf_idx += 4;
+  memcpy(&g_db_msg[buf_idx], (void*)&clearity_int, 4); buf_idx += 4;
 
   uint16_t payload_size = buf_idx - 6;
   memcpy(&g_db_msg[4], (void*)&payload_size, 2); // 2-byte checksum
@@ -283,8 +273,8 @@ static void alt_loop(void) {
       // for (int i = 0; i < ranging_data.RangeMilliMeter/10; i++) printf("-");
       // printf("\n");
 
-      if (status != VL53L1_RANGESTATUS_SIGNAL_FAIL) g_optflow.z_alt = 1 + ranging_data.RangeMilliMeter;
-      else g_optflow.z_alt = 0;
+      if (status != VL53L1_RANGESTATUS_SIGNAL_FAIL) g_z_alt = 1 + ranging_data.RangeMilliMeter;
+      else g_z_alt = 0;
       status = VL53L1_ClearInterruptAndStartMeasurement(&dev); // clear Interrupt start next measurement
     }
 
