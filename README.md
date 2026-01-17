@@ -1,6 +1,12 @@
 # Flight Optflow Application
 
-This is an ESP-IDF application for the ESP32-S3 that performs Optical Flow calculations using the `optflow` library and VL53L1X distance sensor.
+This is an ESP-IDF application for the ESP32-S3/P4 that performs Optical Flow calculations using the `optflow` library and VL53L1X distance sensor. It serves as a standalone testbench for the optical flow subsystem used in the main Flight Controller.
+
+## Overview
+
+- **Sensors:** OV2640/OV5640 Camera Module and VL53L1X (ToF Distance)
+- **Output:** Flow vector (dx, dy), Surface Quality, and Altitude (z) via UART/USB
+- **Purpose:** Validate optical flow algorithms running on ESP32-S3 using camera input.
 
 ## Dependencies
 
