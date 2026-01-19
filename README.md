@@ -44,8 +44,25 @@ Replace `<PORT>` with your device port (e.g., `/dev/cu.usbmodem...`).
 
 ## Project Structure
 
+- `docs/`: Technical documentation.
+    - `SCHEDULER_ARCHITECTURE.md`: Detailed breakdown of the Dual-Core Scheduler and Camera timings.
 - `main/`: Application source code.
     - `main.c`: Main entry point, initializes camera, sensors, and runs optical flow loop.
 - `components/`: Local components.
     - `optflow/`: **Auto-generated**. Contains the pre-compiled library and headers.
+
+## System Architecture
+
+### 1. Scheduler
+The system runs a **Dual-Core Priority-Based Scheduler** to separate 1kHz flight control loops from 25Hz/10Hz low-priority tasks.
+- **High Priority (Core 0/1)**:
+    - Fast: 1000, 500, 250, 100 Hz.
+    - Slow: 50, 25, 10, 5, 1 Hz (High Precision).
+- **Low Priority (Core 0/1)**:
+    - Background: 50, 25, 10, 5, 1 Hz (Best Effort).
+
+### 2. Camera & Optical Flow
+- **Frame Rate**: locked to **25 Hz** via `SCHEDULER_CORE0_LP_25HZ`.
+- **Latency**: Minimized using `CAMERA_GRAB_LATEST`.
+- **Preemption**: Camera processing runs at Priority 20 (Lower than Flight Control at 22), ensuring the drone remains stable even during heavy image processing.
     - `vl53l1x/`: Driver for the ToF sensor.
