@@ -4,9 +4,9 @@
 #include <esp_timer.h>
 #include <platform.h>
 #include <pubsub.h>
-#include <image_util.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <image_util.h>
 
 #define TAG "camera"
 
@@ -19,6 +19,19 @@ static void trigger_camera(uint8_t *data, size_t size) {
         xTaskNotifyGive(g_camera_task_handle);
     }
 }
+
+#if OPTFLOW_METHOD_CROP
+static void fast_center_crop(uint8_t *src, int src_w, int src_h, uint8_t *dst, int dst_w, int dst_h) {
+    int start_x = (src_w - dst_w) / 2;
+    int start_y = (src_h - dst_h) / 2;
+
+    for (int i = 0; i < dst_h; i++) {
+        const uint8_t *src_ptr = src + ((start_y + i) * src_w) + start_x;
+        uint8_t *dst_ptr = dst + (i * dst_w);
+        memcpy(dst_ptr, src_ptr, dst_w);
+    }
+}
+#endif
 
 static void camera_task(void *arg) {
     while (1) {
@@ -39,15 +52,25 @@ static void camera_task(void *arg) {
         
         esp_camera_fb_return(fb);
 
+#if OPTFLOW_METHOD_CROP
+        // Center Crop (Focus on center 64x64 for maximum detail/sharpness)
+        // 5x Digital Zoom (320->64). High sensitivity for hover.
+        fast_center_crop(src_buf, src_w, src_h, g_frame_buffer, CAM_WIDTH, CAM_HEIGHT);
+#else
+        // Resize (Downscale full FOV to 64x64)
+        // Better for high speed, less sensitive to small drifts.
+        int min_dim = (src_w < src_h) ? src_w : src_h; // Usually 240
+        int off_x = (src_w - min_dim) / 2;
+        int off_y = (src_h - min_dim) / 2;
+        
         fast_crop_and_resize_bilinear(
             src_buf, src_w, src_h,
             g_frame_buffer, CAM_WIDTH, CAM_HEIGHT,
-            (int)((src_w - src_h) * 0.5), 0, src_h, src_h);
+            off_x, off_y, min_dim, min_dim);
+#endif
         
         // Populate message
-        for (int i=0; i < CAM_WIDTH * CAM_HEIGHT; i++) {
-            g_camera_msg.data[i] = g_frame_buffer[i];
-        }
+        memcpy(g_camera_msg.data, g_frame_buffer, CAM_WIDTH * CAM_HEIGHT);
         g_camera_msg.timestamp = (uint32_t)esp_timer_get_time();
 
         publish(SENSOR_CAMERA_FRAME, (uint8_t*)&g_camera_msg, sizeof(camera_frame_t));

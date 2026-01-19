@@ -1,4 +1,5 @@
 #include "optical_flow.h"
+#include <platform.h>
 #include <pubsub.h>
 #include <optflow.h>
 #include <esp_timer.h>
@@ -62,7 +63,18 @@ static void on_camera_frame(uint8_t *data, size_t size) {
 }
 
 void optical_flow_setup(void) {
-    optflow_init(CAM_WIDTH, CAM_HEIGHT, 0);
+#if OPTFLOW_METHOD_CROP
+    // Correct FOV for Center Crop (64x64 cropped from 320x240)
+    // Original FOV: 66 deg. Zoom Factor: 320/64 = 5.
+    // New FOV: 66 / 5 = 13.2 deg.
+    optflow_camera_fov_degrees = 13.2f;
+#else
+    // Resize Mode: Takes 240x240 center and downscales.
+    // FOV is approx 75% of full horizontal FOV.
+    optflow_camera_fov_degrees = 49.5f;
+#endif
+
+    optflow_init(CAM_WIDTH, CAM_HEIGHT, 0); // 0 = Dense Mode (Lucas-Kanade)
     
     // Create Optical Flow Task on Core 1 (Priority 20, same as Camera but less than High Band)
     xTaskCreatePinnedToCore(optical_flow_task_runner, "optflow_task", 4096, NULL, 20, &g_optflow_task, 1);

@@ -43,6 +43,21 @@ idf.py -p <PORT> flash monitor
 ```
 Replace `<PORT>` with your device port (e.g., `/dev/cu.usbmodem...`).
 
+### 5. Visualization Tool
+
+A Python script is provided to visualize the optical flow vectors and quality in real-time.
+
+**Prerequisites:**
+```bash
+pip install matplotlib pyserial
+```
+
+**Run the tool:**
+```bash
+python3 tools/visualize_flow.py
+```
+The script will automatically detect the ESP32 port and start plotting `dx`, `dy`, and `quality` metrics.
+
 ## Project Structure
 
 - `docs/`: Technical documentation.
