@@ -1,8 +1,13 @@
 # ESP-IDF
 /build/
+/sdkconfig
 /sdkconfig.old
+/sdkconfigs
 /managed_components/
 dependencies.lock
+*.bin
+*.elf
+*.map
 
 # Editor / IDE
 .vscode/
