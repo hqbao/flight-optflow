@@ -31,8 +31,9 @@ cd ../../flight-optflow
 ```
 
 ### 3. Build the Project
+Since `sdkconfig.defaults` is provided, the target is automatically set to ESP32-S3.
+
 ```bash
-idf.py set-target esp32s3
 idf.py build
 ```
 

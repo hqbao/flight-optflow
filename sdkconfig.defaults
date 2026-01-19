@@ -1,0 +1,37 @@
+CONFIG_IDF_TARGET="esp32s3"
+
+# Compiler Optimization
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_COMPILER_OPTIMIZATION_ASSERTION_LEVEL=2
+
+# Camera (Core 0 to leave Core 1 for Optical Flow)
+CONFIG_CAMERA_CORE0=y
+
+# XIAO ESP32S3 Hardware Specs
+# CPU Frequency: 240MHz
+CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240=y
+CONFIG_ESP32S3_DEFAULT_CPU_FREQ_MHZ=240
+
+# Flash: 2MB (Common generic default, but XIAO usually has 8MB, keeping 2MB safe default if it works)
+# Note: XIAO ESP32S3 Sense has 8MB Flash. 
+# However, your current working build says CONFIG_ESPTOOLPY_FLASHSIZE_2MB=y.
+# If you are sure it's working, we will stick to 2MB to avoid boot loops if his is different.
+CONFIG_ESPTOOLPY_FLASHSIZE_2MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# PSRAM (XIAO Sense has PSRAM, Base XIAO S3 does not always)
+# Your current build HAS SPIRAM enabled.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
+
+# Console Output
+# Enable USB Serial/JTAG Controller as secondary or primary console
+# XIAO S3 uses native USB, so this is important for seeing logs without external adapter
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
+
+
