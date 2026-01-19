@@ -20,18 +20,6 @@ static void trigger_camera(uint8_t *data, size_t size) {
     }
 }
 
-#if OPTFLOW_METHOD_CROP
-static void fast_center_crop(uint8_t *src, int src_w, int src_h, uint8_t *dst, int dst_w, int dst_h) {
-    int start_x = (src_w - dst_w) / 2;
-    int start_y = (src_h - dst_h) / 2;
-
-    for (int i = 0; i < dst_h; i++) {
-        const uint8_t *src_ptr = src + ((start_y + i) * src_w) + start_x;
-        uint8_t *dst_ptr = dst + (i * dst_w);
-        memcpy(dst_ptr, src_ptr, dst_w);
-    }
-}
-#endif
 
 static void camera_task(void *arg) {
     while (1) {

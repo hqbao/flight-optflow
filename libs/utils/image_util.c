@@ -140,3 +140,14 @@ int fast_crop_and_resize_bilinear(
 
   return 0; // Success
 }
+
+void fast_center_crop(const unsigned char *src, int src_w, int src_h, unsigned char *dst, int dst_w, int dst_h) {
+    int start_x = (src_w - dst_w) / 2;
+    int start_y = (src_h - dst_h) / 2;
+
+    for (int i = 0; i < dst_h; i++) {
+        const unsigned char *src_ptr = src + ((start_y + i) * src_w) + start_x;
+        unsigned char *dst_ptr = dst + (i * dst_w);
+        memcpy(dst_ptr, src_ptr, dst_w);
+    }
+}

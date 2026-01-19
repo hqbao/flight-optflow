@@ -6,4 +6,8 @@ int fast_crop_and_resize_bilinear(
     unsigned char *dst_image, int dst_w, int dst_h,
     int crop_x, int crop_y, int crop_w, int crop_h);
 
+void fast_center_crop(
+    const unsigned char *src, int src_w, int src_h, 
+    unsigned char *dst, int dst_w, int dst_h);
+
 #endif
