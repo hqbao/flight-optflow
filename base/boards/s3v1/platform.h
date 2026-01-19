@@ -3,8 +3,8 @@
 
 #include <stdio.h>
 
-#define ENABLE_RANGE_FINDER 0
-#define CAMERA_DIRECTION 2 // 1=downward, 2=upward
+#define ENABLE_RANGE_FINDER 1
+#define CAMERA_DIRECTION 0 // 0=downward, 1=upward
 
 #define ENABLE_DEBUG_LOGGING 1
 
