@@ -39,22 +39,21 @@ static void on_optflow_data(uint8_t *data, size_t size) {
     }
     g_last_timestamp = of->timestamp;
 
-    ESP_LOGI(TAG, "OF: dx=%.2f \tdy=%.2f \tqual=%d \tRF: dist=%.1f \tFreq: %.1f Hz",
-        -of->dx_mm, of->dy_mm, of->quality,
+    ESP_LOGI(TAG, "OF: dx=%.4f \tdy=%.4f rad \tqual=%d \tRF: dist=%.1f \tFreq: %.1f Hz",
+        -of->dx_rad, of->dy_rad, of->quality,
         g_latest_z_mm, fps);
 #endif
 
     // Construct protocol message
     // [ 'd', 'b', 0x01, direction, len_low, len_high, dx(4), dy(4), z(4), quality(4), chk(2) ]
-    // Replicating main.c structure:
-    // g_db_msg[0-2] = 'd', 'b', 0x01
-    // g_db_msg[3] = direction (0=down, 1=up)
+    // dx/dy are radians scaled by 100000 for int32 transmission
     
     static uint8_t msg[256] = {'d', 'b', 0x01, CAMERA_DIRECTION}; 
     int idx = 6;
 
-    int dx_int = (int)(-of->dx_mm * 1000); // Note: main.c negated dx
-    int dy_int = (int)(of->dy_mm * 1000);
+    // Scale radians to int32: multiply by 100000 for ~0.00001 rad precision
+    int dx_int = (int)(-of->dx_rad * 100000.0f); // Note: negated dx
+    int dy_int = (int)(of->dy_rad * 100000.0f);
     int z_int = (int)g_latest_z_mm;
     int quality_int = (int)(of->clarity * 10);
 

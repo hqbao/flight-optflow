@@ -3,13 +3,13 @@
 
 #include <stdint.h>
 
-// Optical Flow Result
+// Optical Flow Result (angular displacement in radians/frame)
 typedef struct {
-    float dx_mm;
-    float dy_mm;
-    float rotation;
-    float clarity;
-    uint8_t quality;
+    float dx_rad;       // X angular displacement (radians/frame)
+    float dy_rad;       // Y angular displacement (radians/frame)
+    float rotation;     // Rotation around optical axis (radians/frame)
+    float clarity;      // Gradient strength (texture quality metric)
+    uint8_t quality;    // Quality 0-255
     uint32_t timestamp;
 } optical_flow_result_t;
 

@@ -17,16 +17,16 @@ static void optical_flow_task_runner(void *arg) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         float clarity = 0;
-        float dx_mm = 0;
-        float dy_mm = 0;
+        float dx_rad = 0;
+        float dy_rad = 0;
         float rotation = 0;
         int mode = 0;
 
         // Perform heavy calculation on Core 1
-        optflow_calc(g_frame_buffer, &dy_mm, &dx_mm, &rotation, &clarity, &mode);
+        optflow_calc(g_frame_buffer, &dy_rad, &dx_rad, &rotation, &clarity, &mode);
 
-        g_optflow_msg.dx_mm = dx_mm;
-        g_optflow_msg.dy_mm = dy_mm;
+        g_optflow_msg.dx_rad = dx_rad;
+        g_optflow_msg.dy_rad = dy_rad;
         g_optflow_msg.rotation = rotation;
         g_optflow_msg.clarity = clarity;
         g_optflow_msg.quality = (uint8_t)(clarity * 10);
