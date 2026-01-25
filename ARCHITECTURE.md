@@ -27,7 +27,7 @@ The system is designed with a strict **Event-Driven PubSub Architecture** to ens
     -   Debug logging is centralized in `modules/telemetry` (for now) or a dedicated logger, controllable via `#define ENABLE_DEBUG_LOGGING` in `platform.h`.
 
 5.  **Configuration**:
-    -   Hardware-specific pinouts and feature flags (e.g., `ENABLE_RANGE_FINDER`) are located in `base/boards/s3v1/platform.h`.
+    -   Hardware-specific pinouts and feature flags (e.g., `ENABLE_RANGE_FINDER`) are located in `base/boards/s3v1/board_config/platform.h`.
 
 ## System Components
 

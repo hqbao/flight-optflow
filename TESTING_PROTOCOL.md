@@ -6,7 +6,7 @@
 
 #### 1. Code Compilation ✓
 ```bash
-cd /Users/bao/skydev/flight-optflow
+cd /Users/bao/skydev/flight-optflow/base/boards/s3v1
 source /Users/bao/skydev-research/esp/esp-idf/export.sh 2>/dev/null
 idf.py build
 # Must succeed with no errors

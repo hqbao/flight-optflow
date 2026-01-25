@@ -31,14 +31,16 @@ cd ../../flight-optflow
 ```
 
 ### 3. Build the Project
-Since `sdkconfig.defaults` is provided, the target is automatically set to ESP32-S3.
+Navigate to the board-specific directory (e.g., S3 V1 board):
 
 ```bash
+cd base/boards/s3v1
 idf.py build
 ```
 
 ### 4. Flash and Monitor
 ```bash
+# from base/boards/s3v1 directory
 idf.py -p <PORT> flash monitor
 ```
 Replace `<PORT>` with your device port (e.g., `/dev/cu.usbmodem...`).
