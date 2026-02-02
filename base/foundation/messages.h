@@ -11,6 +11,7 @@ typedef struct {
     float clarity;      // Gradient strength (texture quality metric)
     uint8_t quality;    // Quality 0-255
     uint32_t timestamp;
+    uint32_t dt;        // Time delta (microseconds)
 } optical_flow_result_t;
 
 // Range Finder Result

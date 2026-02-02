@@ -11,9 +11,6 @@
 #define UART_BAUD_RATE 19200
 
 static float g_latest_z_mm = 0;
-#if ENABLE_DEBUG_LOGGING
-static uint32_t g_last_timestamp = 0;
-#endif
 
 static void on_range_data(uint8_t *data, size_t size) {
     if (size != sizeof(range_finder_t)) return;
@@ -31,24 +28,25 @@ static void on_optflow_data(uint8_t *data, size_t size) {
 
 #if ENABLE_DEBUG_LOGGING
     float fps = 0;
-    if (g_last_timestamp > 0) {
-        uint32_t diff = of->timestamp - g_last_timestamp;
-        if (diff > 0) {
-            fps = 1000000.0f / (float)diff;
-        }
+    if (of->dt > 0) {
+        fps = 1000000.0f / (float)of->dt;
     }
-    g_last_timestamp = of->timestamp;
 
-    ESP_LOGI(TAG, "OF: dx=%.4f \tdy=%.4f rad \tqual=%d \tRF: dist=%.1f \tFreq: %.1f Hz",
+    ESP_LOGI(TAG, "OF: dx=%.4f \tdy=%.4f rad \tqual=%d \tRF: dist=%.1f \tFreq: %.1f Hz \tdt: %lu",
         -of->dx_rad, of->dy_rad, of->quality,
-        g_latest_z_mm, fps);
+        g_latest_z_mm, fps, of->dt);
 #endif
 
     // Construct protocol message
     // [ 'd', 'b', 0x01, direction, len_low, len_high, dx(4), dy(4), z(4), quality(4), chk(2) ]
     // dx/dy are radians scaled by 100000 for int32 transmission
     
-    static uint8_t msg[256] = {'d', 'b', 0x01, CAMERA_DIRECTION}; 
+    static uint8_t msg[64]; // Use stack buffer
+    msg[0] = 'd';
+    msg[1] = 'b';
+    msg[2] = 0x01;
+    msg[3] = CAMERA_DIRECTION;
+
     int idx = 6;
 
     // Scale radians to int32: multiply by 100000 for ~0.00001 rad precision
@@ -65,9 +63,15 @@ static void on_optflow_data(uint8_t *data, size_t size) {
     uint16_t payload_size = idx - 6;
     memcpy(&msg[4], &payload_size, 2);
     
-    // Checksum (unused in main.c logic but space reserved)
-    msg[idx++] = 0;
-    msg[idx++] = 0;
+    // Checksum (UBX algorithm: Class + ID + Len + Payload)
+    uint8_t ck_a = 0, ck_b = 0;
+    for (int i = 2; i < idx; i++) {
+        ck_a = ck_a + msg[i];
+        ck_b = ck_b + ck_a;
+    }
+    
+    msg[idx++] = ck_a;
+    msg[idx++] = ck_b;
 
     uart_write_bytes(UART_PORT, (const char*)msg, idx);
 }

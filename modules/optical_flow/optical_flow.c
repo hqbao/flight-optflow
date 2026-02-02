@@ -13,8 +13,13 @@ static TaskHandle_t g_optflow_task = NULL;
 static volatile bool g_processing_busy = false;
 
 static void optical_flow_task_runner(void *arg) {
+    uint32_t last_time = 0;
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        uint32_t now = (uint32_t)esp_timer_get_time();
+        uint32_t dt = (last_time > 0) ? (now - last_time) : 0;
+        last_time = now;
 
         float clarity = 0;
         float dx_rad = 0;
@@ -30,7 +35,8 @@ static void optical_flow_task_runner(void *arg) {
         g_optflow_msg.rotation = rotation;
         g_optflow_msg.clarity = clarity;
         g_optflow_msg.quality = (uint8_t)(clarity * 10);
-        g_optflow_msg.timestamp = (uint32_t)esp_timer_get_time();
+        g_optflow_msg.timestamp = now;
+        g_optflow_msg.dt = dt;
 
         publish(SENSOR_OPTFLOW, (uint8_t*)&g_optflow_msg, sizeof(optical_flow_result_t));
         
