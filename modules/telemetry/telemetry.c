@@ -8,7 +8,7 @@
 
 #define TAG "telemetry"
 #define UART_PORT UART_NUM_1
-#define UART_BAUD_RATE 19200
+#define UART_BAUD_RATE 38400
 
 static float g_latest_z_mm = 0;
 

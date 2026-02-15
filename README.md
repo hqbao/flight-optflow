@@ -1,86 +1,114 @@
-# Flight Optflow Application
+# Flight Optflow
 
-This is an ESP-IDF application for the ESP32-S3/P4 that performs Optical Flow calculations using the `optflow` library and VL53L1X distance sensor. It serves as a standalone testbench for the optical flow subsystem used in the main Flight Controller.
+An ESP-IDF application for the ESP32-S3 that performs optical flow calculations using the `optflow` library and VL53L1X time-of-flight sensor. Serves as the standalone optical flow sensor module for the main Flight Controller.
 
 ## Overview
 
-- **Sensors:** OV2640/OV5640 Camera Module and VL53L1X (ToF Distance)
-- **Output:** Flow vector (dx, dy), Surface Quality, and Altitude (z) via UART/USB
-- **Purpose:** Validate optical flow algorithms running on ESP32-S3 using camera input.
+- **Camera:** OV2640/OV5640 module → 64×64 grayscale @ 25 Hz
+- **Range Sensor:** VL53L1X time-of-flight (altitude)
+- **Output:** Flow vector (dx, dy), surface quality, altitude via UART at 38400 baud
+- **MCU:** ESP32-S3
+
+## Project Structure
+
+```
+flight-optflow/
+├── base/
+│   ├── boards/
+│   │   └── s3v1/              # ESP32-S3 board config & entry point
+│   └── foundation/            # Platform abstraction, pub/sub, messages
+├── libs/
+│   ├── optflow/               # Pre-compiled optical flow library
+│   ├── utils/                 # Utility functions
+│   └── vl53l1x/              # VL53L1X ToF sensor driver
+├── modules/
+│   ├── camera/                # Camera capture, publishes SENSOR_CAMERA_FRAME
+│   ├── optical_flow/          # Flow calculation, publishes SENSOR_OPTFLOW
+│   ├── range_finder/          # VL53L1X driver, publishes SENSOR_RANGE
+│   ├── scheduler/             # Dual-core priority-based scheduler
+│   └── telemetry/             # Aggregates flow + range → UART output
+├── tools/
+│   ├── view_frame.py          # Camera frame viewer
+│   ├── view_optflow.py        # Optical flow vector viewer
+│   └── visualize_flow.py      # Real-time flow visualization
+└── docs/
+    └── SCHEDULER_ARCHITECTURE.md
+```
+
+## Architecture
+
+### Event-Driven Pub/Sub
+All inter-module communication uses publish-subscribe — no direct function calls between modules.
+
+### Data Flow
+1. **Scheduler** triggers camera capture at 25 Hz
+2. **Camera** → publishes `SENSOR_CAMERA_FRAME`
+3. **Optical Flow** → subscribes to frame, calculates flow → publishes `SENSOR_OPTFLOW`
+4. **Range Finder** → reads VL53L1X periodically → publishes `SENSOR_RANGE`
+5. **Telemetry** → subscribes to flow + range → sends UART packet to flight controller
+
+### Dual-Core Threading
+| Core | Tasks |
+|------|-------|
+| **Core 0** | Camera driver (hardware interrupts), low-priority scheduler, WiFi |
+| **Core 1** | Optical flow calculation (dense math), range finder I2C |
+
+Camera processing runs at Priority 20, below flight control at Priority 22.
 
 ## Dependencies
 
-- **Optflow Library**: This project relies on the pre-compiled `optflow` component.
-    - The library must be built and published to `components/optflow/` **before** building this project.
-    - See `../optflow/README.md` for instructions.
+The `optflow` library must be built and published before building this project:
+```bash
+cd ../optflow/build-esp32s3
+./build.sh    # Compiles and copies to flight-optflow/libs/optflow/
+```
 
-## Build Instructions
+## Build & Flash
 
-### 1. Setup Environment
-Ensure you have the ESP-IDF environment activated:
+### Setup Environment
 ```bash
 . $HOME/esp/esp-idf/export.sh
 ```
 
-### 2. Update Dependencies (Important)
-If you have made changes to the `optflow` library, rebuild and publish it first:
-```bash
-cd ../optflow/build-esp32s3
-./build.sh
-cd ../../flight-optflow
-```
-
-### 3. Build the Project
-Navigate to the board-specific directory (e.g., S3 V1 board):
-
+### Build
 ```bash
 cd base/boards/s3v1
 idf.py build
 ```
 
-### 4. Flash and Monitor
+### Flash & Monitor
 ```bash
-# from base/boards/s3v1 directory
-idf.py -p <PORT> flash monitor
+idf.py -p /dev/cu.usbmodem* flash monitor
 ```
-Replace `<PORT>` with your device port (e.g., `/dev/cu.usbmodem...`).
 
-### 5. Visualization Tool
+## Visualization Tools
 
-A Python script is provided to visualize the optical flow vectors and quality in real-time.
-
-**Prerequisites:**
 ```bash
 pip install matplotlib pyserial
 ```
 
-**Run the tool:**
-```bash
-python3 tools/visualize_flow.py
-```
-The script will automatically detect the ESP32 port and start plotting `dx`, `dy`, and `quality` metrics.
+| Tool | Purpose |
+|------|---------|
+| `tools/view_frame.py` | View raw camera frames |
+| `tools/view_optflow.py` | View optical flow vectors |
+| `tools/visualize_flow.py` | Real-time dx, dy, quality plots |
 
-## Project Structure
+## Coding Rules
 
-- `docs/`: Technical documentation.
-    - `SCHEDULER_ARCHITECTURE.md`: Detailed breakdown of the Dual-Core Scheduler and Camera timings.
-- `main/`: Application source code.
-    - `main.c`: Main entry point, initializes camera, sensors, and runs optical flow loop.
-- `components/`: Local components.
-    - `optflow/`: **Auto-generated**. Contains the pre-compiled library and headers.
+1. **No cross-module includes** — modules communicate only via pub/sub
+2. **Shared structs** in `base/foundation/messages.h`
+3. **Topics** in `base/foundation/pubsub.h`
+4. **Hardware config** in `base/boards/s3v1/board_config/platform.h`
+5. **No module-level logging** — centralized in telemetry module
 
-## System Architecture
+## Related Projects
 
-### 1. Scheduler
-The system runs a **Dual-Core Priority-Based Scheduler** to separate 1kHz flight control loops from 25Hz/10Hz low-priority tasks.
-- **High Priority (Core 0/1)**:
-    - Fast: 1000, 500, 250, 100 Hz.
-    - Slow: 50, 25, 10, 5, 1 Hz (High Precision).
-- **Low Priority (Core 0/1)**:
-    - Background: 50, 25, 10, 5, 1 Hz (Best Effort).
+| Project | Description |
+|---------|-------------|
+| [`../optflow/`](../optflow/) | Optical flow library source |
+| [`../flight-controller/`](../flight-controller/) | Main flight controller (consumes flow data) |
+| [`../robotkit/`](../robotkit/) | Math and fusion library |
 
-### 2. Camera & Optical Flow
-- **Frame Rate**: locked to **25 Hz** via `SCHEDULER_CORE0_LP_25HZ`.
-- **Latency**: Minimized using `CAMERA_GRAB_LATEST`.
-- **Preemption**: Camera processing runs at Priority 20 (Lower than Flight Control at 22), ensuring the drone remains stable even during heavy image processing.
-    - `vl53l1x/`: Driver for the ToF sensor.
+## License
+
+Proprietary. See LICENSE file for details.
