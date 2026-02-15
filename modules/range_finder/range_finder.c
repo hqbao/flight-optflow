@@ -1,5 +1,5 @@
 #include "range_finder.h"
-#include <driver/i2c.h>
+#include <driver/i2c_master.h>
 #include <esp_log.h>
 #include <vl53l1_api.h>
 #include <platform.h>
@@ -13,7 +13,8 @@
 
 static range_finder_t g_range_msg;
 static VL53L1_Dev_t dev;
-static int g_i2c_port = I2C_NUM_0;
+static i2c_master_bus_handle_t g_i2c_bus = NULL;
+static i2c_master_dev_handle_t g_i2c_dev = NULL;
 
 static void check_range_finder(uint8_t *data, size_t size) {
     uint8_t isReady = 0;
@@ -38,19 +39,25 @@ static void check_range_finder(uint8_t *data, size_t size) {
 }
 
 void range_finder_setup(void) {
-    // I2C init
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
+    // I2C init (new master driver)
+    i2c_master_bus_config_t bus_conf = {
+        .i2c_port = I2C_NUM_0,
         .sda_io_num = I2C_SDA_PIN,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
         .scl_io_num = I2C_SCL_PIN,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = 400000,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
     };
-    i2c_param_config(g_i2c_port, &conf);
-    i2c_driver_install(g_i2c_port, conf.mode, 0, 0, 0);
+    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_conf, &g_i2c_bus));
 
-    dev.I2cHandle = &g_i2c_port;
+    i2c_device_config_t dev_conf = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = VL53L1X_ADDRESS,
+        .scl_speed_hz = 400000,
+    };
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(g_i2c_bus, &dev_conf, &g_i2c_dev));
+
+    dev.I2cHandle = g_i2c_dev;
     dev.I2cDevAddr = 0x52; 
 
     // VL53L1 init sequence

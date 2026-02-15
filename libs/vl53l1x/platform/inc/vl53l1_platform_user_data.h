@@ -38,6 +38,8 @@
 //#include "stm32xxx_hal.h"
 #include "vl53l1_def.h"
 
+#include "driver/i2c_master.h"
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -51,9 +53,7 @@ typedef struct {
 	uint8_t   comms_type;
 	uint16_t  comms_speed_khz;
 	uint32_t  new_data_ready_poll_duration_ms;
-	int *I2cHandle;
-
-	// I2C_HandleTypeDef *I2cHandle;
+	i2c_master_dev_handle_t I2cHandle;
 
 } VL53L1_Dev_t;
 
