@@ -6,11 +6,12 @@
 #include <string.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <stdatomic.h>
 
 static optical_flow_result_t g_optflow_msg;
 static uint8_t g_frame_buffer[CAM_WIDTH * CAM_HEIGHT];
 static TaskHandle_t g_optflow_task = NULL;
-static volatile bool g_processing_busy = false;
+static atomic_bool g_processing_busy = false;
 
 static void optical_flow_task_runner(void *arg) {
     uint32_t last_time = 0;
@@ -40,8 +41,8 @@ static void optical_flow_task_runner(void *arg) {
 
         publish(SENSOR_OPTFLOW, (uint8_t*)&g_optflow_msg, sizeof(optical_flow_result_t));
         
-        // Mark buffer as free for next frame
-        g_processing_busy = false;
+        // Mark buffer as free for next frame (atomic for cross-core visibility)
+        atomic_store(&g_processing_busy, false);
     }
 }
 
@@ -50,12 +51,12 @@ static void on_camera_frame(uint8_t *data, size_t size) {
     
     // Simple protection: Drop frame if previous one is still processing
     // This prevents tearing (overwriting g_frame_buffer while Core 1 is reading it)
-    if (g_processing_busy) {
+    if (atomic_load(&g_processing_busy)) {
         return; 
     }
     
-    // Lock buffer
-    g_processing_busy = true;
+    // Lock buffer (atomic for cross-core visibility)
+    atomic_store(&g_processing_busy, true);
 
     camera_frame_t *frame = (camera_frame_t*)data;
 
@@ -83,7 +84,7 @@ void optical_flow_setup(void) {
     optflow_init(CAM_WIDTH, CAM_HEIGHT, 0); // 0 = Dense Mode (Lucas-Kanade)
     
     // Create Optical Flow Task on Core 1 (Priority 20, same as Camera but less than High Band)
-    xTaskCreatePinnedToCore(optical_flow_task_runner, "optflow_task", 4096, NULL, 20, &g_optflow_task, 1);
+    xTaskCreatePinnedToCore(optical_flow_task_runner, "optflow_task", 8192, NULL, 20, &g_optflow_task, 1);
     
     subscribe(SENSOR_CAMERA_FRAME, on_camera_frame);
 }

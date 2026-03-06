@@ -24,7 +24,8 @@ static void check_range_finder(uint8_t *data, size_t size) {
         VL53L1_RangingMeasurementData_t ranging_data;
         VL53L1_Error status = VL53L1_GetRangingMeasurementData(&dev, &ranging_data);
         
-        if (status != VL53L1_RANGESTATUS_SIGNAL_FAIL) {
+        if (status == VL53L1_ERROR_NONE && 
+            ranging_data.RangeStatus != VL53L1_RANGESTATUS_SIGNAL_FAIL) {
             g_range_msg.distance_mm = 1 + ranging_data.RangeMilliMeter;
             g_range_msg.status = 1; // Valid
         } else {

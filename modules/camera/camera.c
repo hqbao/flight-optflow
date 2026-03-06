@@ -31,31 +31,25 @@ static void camera_task(void *arg) {
             continue;
         }
 
-        // OPTIMIZATION: Return buffer immediately to DMA engine to maximize frame rate.
-        // Reading from the buffer after return is safe-ish here because processing (2ms) 
-        // is much faster than the next DMA fill (>30ms) with multiple buffers.
-        uint8_t *src_buf = fb->buf;
-        size_t src_w = fb->width;
-        size_t src_h = fb->height;
-        
-        esp_camera_fb_return(fb);
-
 #if OPTFLOW_METHOD_CROP
         // Center Crop (Focus on center 64x64 for maximum detail/sharpness)
         // 5x Digital Zoom (320->64). High sensitivity for hover.
-        fast_center_crop(src_buf, src_w, src_h, g_frame_buffer, CAM_WIDTH, CAM_HEIGHT);
+        fast_center_crop(fb->buf, fb->width, fb->height, g_frame_buffer, CAM_WIDTH, CAM_HEIGHT);
 #else
         // Resize (Downscale full FOV to 64x64)
         // Better for high speed, less sensitive to small drifts.
-        int min_dim = (src_w < src_h) ? src_w : src_h; // Usually 240
-        int off_x = (src_w - min_dim) / 2;
-        int off_y = (src_h - min_dim) / 2;
+        int min_dim = (fb->width < fb->height) ? fb->width : fb->height; // Usually 240
+        int off_x = (fb->width - min_dim) / 2;
+        int off_y = (fb->height - min_dim) / 2;
         
         fast_crop_and_resize_bilinear(
-            src_buf, src_w, src_h,
+            fb->buf, fb->width, fb->height,
             g_frame_buffer, CAM_WIDTH, CAM_HEIGHT,
             off_x, off_y, min_dim, min_dim);
 #endif
+
+        // Return buffer to DMA engine AFTER processing is complete
+        esp_camera_fb_return(fb);
         
         // Populate message
         memcpy(g_camera_msg.data, g_frame_buffer, CAM_WIDTH * CAM_HEIGHT);
@@ -83,13 +77,13 @@ void camera_setup(void) {
         .pin_vsync = VSYNC_GPIO_NUM,
         .pin_href = HREF_GPIO_NUM,
         .pin_pclk = PCLK_GPIO_NUM,
-        .xclk_freq_hz = 20000000,
+        .xclk_freq_hz = 24000000,
         .ledc_timer = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
         .pixel_format = PIXFORMAT_GRAYSCALE,
         .frame_size = FRAMESIZE_QVGA,
         .jpeg_quality = 10,
-        .fb_count = 3,
+        .fb_count = 6,
         .fb_location = CAMERA_FB_IN_PSRAM,
         .grab_mode = CAMERA_GRAB_LATEST,
     };
@@ -101,5 +95,5 @@ void camera_setup(void) {
     }
 
     subscribe(SCHEDULER_CORE0_HP_25HZ, trigger_camera);
-    xTaskCreatePinnedToCore(camera_task, "camera_task", 4096, NULL, 20, &g_camera_task_handle, 0);
+    xTaskCreatePinnedToCore(camera_task, "camera_task", 8192, NULL, 20, &g_camera_task_handle, 0);
 }
