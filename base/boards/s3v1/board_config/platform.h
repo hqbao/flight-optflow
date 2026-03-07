@@ -3,8 +3,8 @@
 
 #include <stdio.h>
 
-#define ENABLE_RANGE_FINDER 0
-#define CAMERA_DIRECTION 1 // 0=downward, 1=upward
+#define ENABLE_RANGE_FINDER 1
+#define CAMERA_DIRECTION 0 // 0=downward, 1=upward
 #define OPTFLOW_METHOD_CROP 0 // 1=Center Crop (5x Zoom, High Sens), 0=Resize (Wide FOV)
 #define ENABLE_DEBUG_LOGGING 0
 

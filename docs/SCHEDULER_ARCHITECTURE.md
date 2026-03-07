@@ -1,66 +1,78 @@
-# System Architecture & Scheduler Documentation
+# Scheduler Architecture
 
-## 1. Dual-Core Priority Scheduler
+## Dual-Core Priority Scheduler
 
-The system uses a custom `modules/scheduler` to manage task execution across both ESP32 cores. It is designed to allow high-frequency control loops (1kHz) to preempt lower-frequency tasks (Telemetry, Logging, Camera).
+The system uses `modules/scheduler` to manage periodic task execution across both ESP32-S3 cores. A single GPTimer fires at 1 kHz; the ISR notifies high-priority tasks on both cores. Low-priority tasks are triggered every 20ms by the high-priority task.
 
 ### Frequency Bands
 
-The scheduler is divided into two priority bands per core:
+Two priority bands per core (4 FreeRTOS tasks total):
 
 **1. High-Band (Priority 22)**
-*   **Base Tick**: 1ms (1000 Hz) via Hardware Timer (GPTimer)
-*   **Interrupts**: Preempts everything except IDLE and Wi-Fi/BT tasks.
-*   **Frequencies**:
-    *   `1000 Hz`: (Reserved for Rate Controller)
-    *   `500 Hz`: (Reserved for Attitude Estimation)
-    *   `250 Hz`: (Reserved for Position Estimation)
-    *   `100 Hz`: (Reserved for RC Input)
-    *   `50 Hz - 1 Hz`: (Available for high-precision low-frequency tasks)
+- **Base Tick**: 1ms (1000 Hz) via GPTimer ISR
+- **Behavior**: Preempts everything except Wi-Fi/BT system tasks
+- **Frequencies**: 1000, 500, 250, 100, 50, 25, 10, 5, 1 Hz
+- **Active subscribers**:
+  - `SCHEDULER_CORE0_HP_25HZ` → Camera trigger (`modules/camera`)
 
 **2. Low-Band (Priority 10)**
-*   **Base Tick**: 20ms (50 Hz) Triggered by High-Band logic
-*   **Behavior**: Runs when High-Band is idle.
-*   **Frequencies**:
-    *   `50 Hz`: **Active**: Range Finder (`modules/range_finder`)
-    *   `25 Hz`: **Active**: Optical Flow Camera Trigger (`modules/camera`)
-    *   `10 Hz`: **Active**: Telemetry Streaming (`main.c`)
-    *   `5 Hz`: (Reserved for Battery Check)
-    *   `1 Hz`: (Reserved for LED Heartbeat)
+- **Base Tick**: 20ms (50 Hz), notified by High-Band every `tick % 20 == 0`
+- **Behavior**: Runs when High-Band is idle
+- **Frequencies**: 50, 25, 10, 5, 1 Hz
+- **Active subscribers**:
+  - `SCHEDULER_CORE1_LP_50HZ` → Range Finder (`modules/range_finder`)
 
 ### PubSub Topics
-To use these frequencies, subscribe to the corresponding topic in `pubsub.h`. 
-Note: Low frequencies (<= 50Hz) are available on both High Priority (HP) and Low Priority (LP) bands. HP is strictly timed; LP runs when CPU is free.
 
-| Frequency | Core 0 Topic (HP / LP) | Core 1 Topic (HP / LP) |
+Subscribe to any frequency/core/band combination via `pubsub.h`:
+
+| Frequency | Core 0 (HP / LP) | Core 1 (HP / LP) |
 | :--- | :--- | :--- |
 | **1000 Hz** | `SCHEDULER_CORE0_HP_1000HZ` | `SCHEDULER_CORE1_HP_1000HZ` |
 | **500 Hz** | `SCHEDULER_CORE0_HP_500HZ` | `SCHEDULER_CORE1_HP_500HZ` |
 | **250 Hz** | `SCHEDULER_CORE0_HP_250HZ` | `SCHEDULER_CORE1_HP_250HZ` |
 | **100 Hz** | `SCHEDULER_CORE0_HP_100HZ` | `SCHEDULER_CORE1_HP_100HZ` |
-| **50 Hz** | `SCHEDULER_CORE0_HP_50HZ` / `_LP_50HZ` | `SCHEDULER_CORE1_HP_50HZ` / `_LP_50HZ` |
-| **25 Hz** | `SCHEDULER_CORE0_HP_25HZ` / `_LP_25HZ` | `SCHEDULER_CORE1_HP_25HZ` / `_LP_25HZ` |
-| **10 Hz** | `SCHEDULER_CORE0_HP_10HZ` / `_LP_10HZ` | `SCHEDULER_CORE1_HP_10HZ` / `_LP_10HZ` |
-| **5 Hz** | `SCHEDULER_CORE0_HP_5HZ` / `_LP_5HZ` | `SCHEDULER_CORE1_HP_5HZ` / `_LP_5HZ` |
-| **1 Hz** | `SCHEDULER_CORE0_HP_1HZ` / `_LP_1HZ` | `SCHEDULER_CORE1_HP_1HZ` / `_LP_1HZ` |
+| **50 Hz** | `_HP_50HZ` / `_LP_50HZ` | `_HP_50HZ` / `_LP_50HZ` |
+| **25 Hz** | `_HP_25HZ` / `_LP_25HZ` | `_HP_25HZ` / `_LP_25HZ` |
+| **10 Hz** | `_HP_10HZ` / `_LP_10HZ` | `_HP_10HZ` / `_LP_10HZ` |
+| **5 Hz** | `_HP_5HZ` / `_LP_5HZ` | `_HP_5HZ` / `_LP_5HZ` |
+| **1 Hz** | `_HP_1HZ` / `_LP_1HZ` | `_HP_1HZ` / `_LP_1HZ` |
+
+HP bands are strictly ISR-timed (jitter < 1ms). LP bands run opportunistically when the CPU is free.
 
 ---
 
-## 2. Camera Subsystem
+## Camera Subsystem
 
-The camera module (`modules/camera`) is configured to run synchronously with the scheduler to ensure flight stability.
+The camera module (`modules/camera`) is triggered by the High Priority scheduler to ensure consistent timing.
 
 ### Configuration
-*   **Trigger Source**: `SCHEDULER_CORE0_HP_25HZ` (25 FPS, High Priority Band)
-    *   Running on **Core 0** as requested.
-*   **Wait Mode**: `ulTaskNotifyTake(pdTRUE, portMAX_DELAY)` waits for scheduler event.
-*   **Grab Mode**: `CAMERA_GRAB_LATEST`
-    *   Why? This ensures that when the 25Hz trigger fires, we fetch the *newest* complete frame from the DMA buffer, minimizing motion-to-photon latency for Optical Flow calculations.
-*   **Task Priority**: **20**
-    *   This is strictly **lower** than the High-Band Scheduler (22).
-    *   **Result**: Flight control tasks (Core 0) will preempt camera processing.
+- **Trigger**: `SCHEDULER_CORE0_HP_25HZ` (High Priority, Core 0)
+- **Task**: `camera_task` at Priority 20 on Core 0
+- **Wait Mode**: `ulTaskNotifyTake(pdTRUE, portMAX_DELAY)` — sleeps until scheduler fires
+- **Grab Mode**: `CAMERA_GRAB_LATEST` — fetches the newest DMA frame, minimizing motion-to-photon latency
+- **Frame Buffers**: 6 in PSRAM
 
 ### Electrical Settings
-*   **XCLK**: 20 MHz
-    *   Reduced from 24MHz to improve signal integrity and reduce `EV-VSYNC-OVF` errors.
-    *   20MHz is sufficient for significantly >30FPS at QVGA resolution.
+- **XCLK**: 24 MHz — drives OV2640 at QVGA (320×240) grayscale
+- **Frame Rate**: Camera hardware runs at >30 fps continuously; software triggers capture at 25 Hz
+
+### Priority Design
+- Camera task (20) is **lower** than the scheduler (22), so scheduler ticks are never blocked
+- Camera task (20) is **equal** to the optflow task, but on different cores (Core 0 vs Core 1)
+
+---
+
+## Optical Flow Subsystem
+
+- **Input**: Subscribes to `SENSOR_CAMERA_FRAME` (published by camera on Core 0)
+- **Task**: `optflow_task` at Priority 20 on Core 1
+- **Cross-Core Safety**: `atomic_bool g_processing_busy` prevents frame buffer overwrite during processing
+
+---
+
+## Range Finder Subsystem
+
+- **Trigger**: `SCHEDULER_CORE1_LP_50HZ` (Low Priority, Core 1)
+- **Sensor**: VL53L1X via I2C at 400 kHz
+- **Behavior**: Non-blocking poll — checks `VL53L1_GetMeasurementDataReady()` each tick, publishes only when data is ready
