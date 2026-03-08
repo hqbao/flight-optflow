@@ -77,13 +77,13 @@ void camera_setup(void) {
         .pin_vsync = VSYNC_GPIO_NUM,
         .pin_href = HREF_GPIO_NUM,
         .pin_pclk = PCLK_GPIO_NUM,
-        .xclk_freq_hz = 24000000,
+        .xclk_freq_hz = 20000000,
         .ledc_timer = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
         .pixel_format = PIXFORMAT_GRAYSCALE,
         .frame_size = FRAMESIZE_QVGA,
         .jpeg_quality = 10,
-        .fb_count = 6,
+        .fb_count = 2,             // 2 buffers reduces concurrent DMA↔CPU PSRAM contention
         .fb_location = CAMERA_FB_IN_PSRAM,
         .grab_mode = CAMERA_GRAB_LATEST,
     };
@@ -92,6 +92,15 @@ void camera_setup(void) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Camera init failed with error 0x%x", err);
         return;
+    }
+
+    // Disable OV2640 night mode (auto frame rate reduction).
+    // Without this, the sensor detects dark scenes (e.g. downward-facing close
+    // to a surface) and drops frame rate from 25 to ~5 FPS for longer exposure.
+    sensor_t *s = esp_camera_sensor_get();
+    if (s) {
+        s->set_aec2(s, 0);                       // Disable DSP AEC night mode
+        s->set_gainceiling(s, (gainceiling_t)2);  // Cap auto gain at 8x
     }
 
     subscribe(SCHEDULER_CORE0_HP_25HZ, trigger_camera);
