@@ -151,9 +151,10 @@ pip install matplotlib pyserial
 
 | Project | Description |
 |---------|-------------|
-| [`../optflow/`](../optflow/) | Optical flow library (Lucas-Kanade dense) |
-| [`../flight-controller/`](../flight-controller/) | Main flight controller (consumes flow data) |
-| [`../robotkit/`](../robotkit/) | Math, sensor fusion, PID library |
+| [flight-controller](https://github.com/hqbao/flight-controller) | Main flight controller (consumes flow data) |
+| [flight-vision](https://github.com/hqbao/flight-vision) | OAK-D W visual navigation module |
+| robotkit | Math, sensor fusion, PID library |
+| optflow | Optical flow library (Lucas-Kanade dense) |
 
 ## License
 
