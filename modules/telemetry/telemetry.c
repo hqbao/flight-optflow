@@ -33,7 +33,7 @@ static void on_optflow_data(uint8_t *data, size_t size) {
     }
 
     ESP_LOGI(TAG, "OF: dx=%.4f \tdy=%.4f rad \tqual=%d \tRF: dist=%.1f \tFreq: %.1f Hz \tdt: %lu",
-        -of->dx_rad, of->dy_rad, of->quality,
+        of->dx_rad, -of->dy_rad, of->quality,
         g_latest_z_mm, fps, of->dt);
 #endif
 
@@ -50,8 +50,8 @@ static void on_optflow_data(uint8_t *data, size_t size) {
     int idx = 6;
 
     // Scale radians to int32: multiply by 100000 for ~0.00001 rad precision
-    int dx_int = (int)(-of->dx_rad * 100000.0f); // Note: negated dx
-    int dy_int = (int)(of->dy_rad * 100000.0f);
+    int dx_int = (int)(of->dx_rad * 100000.0f); // Note: negated dx
+    int dy_int = (int)(-of->dy_rad * 100000.0f);
     int z_int = (int)g_latest_z_mm;
     int quality_int = (int)(of->clarity * 10);
 
