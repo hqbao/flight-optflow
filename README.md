@@ -89,6 +89,9 @@ cd ../optflow/build-esp32s3
 ## Build & Flash
 
 ### Setup Environment
+
+Requires [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/) (Espressif IoT Development Framework).
+
 ```bash
 source ~/skydev-research/esp/esp-idf/export.sh
 ```
@@ -96,24 +99,37 @@ source ~/skydev-research/esp/esp-idf/export.sh
 ### Build
 ```bash
 cd base/boards/s3v1
-idf.py build
+./build.sh                              # Build with defaults
+./build.sh --camera-dir 1               # Upward-facing camera
+./build.sh --rangefinder 0              # Disable range finder
+./build.sh --crop 1 --debug-log 1       # Center crop + debug logging
+./build.sh --clean                      # Full clean rebuild
+./build.sh --help                       # Show all options
 ```
 
 ### Flash & Monitor
+```bash
+./build-flash.sh                                    # Build + flash + monitor
+./build-flash.sh --camera-dir 1                     # Upward camera, flash + monitor
+./build-flash.sh --port /dev/cu.usbmodem1101        # Specify serial port
+```
+
+Or manually:
 ```bash
 idf.py -p /dev/cu.usbmodem* flash monitor
 ```
 
 ## Configuration
 
-Key settings in `base/boards/s3v1/board_config/platform.h`:
+Key settings in `base/boards/s3v1/board_config/platform.h`.
+These can be overridden at build time via `build.sh` flags (no need to edit the header):
 
-| Define | Default | Purpose |
-|--------|---------|---------|
-| `ENABLE_RANGE_FINDER` | `1` | Enable/disable VL53L1X |
-| `CAMERA_DIRECTION` | `0` | 0=downward, 1=upward |
-| `OPTFLOW_METHOD_CROP` | `0` | 0=resize (wide FOV), 1=crop (zoom) |
-| `ENABLE_DEBUG_LOGGING` | `0` | Enable telemetry `ESP_LOGI` output |
+| Define | Default | Build Flag | Purpose |
+|--------|---------|------------|---------|
+| `ENABLE_RANGE_FINDER` | `1` | `--rangefinder 0\|1` | Enable/disable VL53L1X |
+| `CAMERA_DIRECTION` | `0` | `--camera-dir 0\|1` | 0=downward, 1=upward |
+| `OPTFLOW_METHOD_CROP` | `0` | `--crop 0\|1` | 0=resize (wide FOV), 1=crop (zoom) |
+| `ENABLE_DEBUG_LOGGING` | `0` | `--debug-log 0\|1` | Enable telemetry `ESP_LOGI` output |
 
 ## UART Protocol
 
