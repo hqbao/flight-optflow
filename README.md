@@ -33,7 +33,7 @@ flight-optflow/
 ├── tools/
 │   ├── view_frame.py          # Camera frame viewer
 │   ├── view_optflow.py        # Optical flow vector viewer
-│   └── visualize_flow.py      # Real-time flow visualization
+│   └── optflow_micoair_view.py # MicoAir MTF-02 optical flow viewer
 └── docs/
     └── SCHEDULER_ARCHITECTURE.md
 ```
@@ -154,6 +154,7 @@ pip install matplotlib pyserial numpy
 |------|---------|---------------------|
 | `tools/view_optflow.py` | Live optical flow vectors, quality, range finder | `--debug-log 1` |
 | `tools/view_frame.py` | Live 64×64 camera frame viewer with histogram | `--frame-tx 1` |
+| `tools/optflow_micoair_view.py` | Live optical flow viewer for MicoAir MTF-02 module | `--debug-log 1` |
 
 ### view_optflow.py — Optical Flow Viewer
 

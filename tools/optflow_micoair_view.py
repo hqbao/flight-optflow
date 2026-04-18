@@ -4,6 +4,9 @@ import struct
 import threading
 import queue
 import numpy as np
+import sys
+import matplotlib
+matplotlib.use('macosx' if sys.platform == 'darwin' else 'TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button
 from matplotlib.animation import FuncAnimation
@@ -72,7 +75,7 @@ ports = serial.tools.list_ports.comports()
 print("Scanning for serial ports...")
 for port, desc, hwid in sorted(ports):
     if any(x in port for x in ['usbmodem', 'usbserial', 'SLAB_USBtoUART',
-                                'ttyACM', 'ttyUSB', 'CP210']):
+                                'ttyACM', 'ttyUSB', 'CP210', 'COM']):
         SERIAL_PORT = port
         print(f"  \u2713 Auto-selected: {port} ({desc})")
         break

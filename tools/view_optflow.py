@@ -14,7 +14,8 @@ import threading
 import queue
 import numpy as np
 import matplotlib
-matplotlib.use('TkAgg')
+import sys
+matplotlib.use('macosx' if sys.platform == 'darwin' else 'TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Button
@@ -44,7 +45,7 @@ ANIM_MS      = 40           # 25 Hz refresh
 # ── Serial auto-detect ───────────────────────────────────────────────────────
 def find_serial_port():
     for port, desc, hwid in sorted(serial.tools.list_ports.comports()):
-        if any(k in port for k in ('usbmodem', 'usbserial', 'SLAB')):
+        if any(k in port for k in ('usbmodem', 'usbserial', 'SLAB', 'ttyACM', 'ttyUSB', 'COM')):
             return port
     return '/dev/cu.usbmodem1101'
 
