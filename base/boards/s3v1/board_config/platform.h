@@ -3,10 +3,22 @@
 
 #include <stdio.h>
 
+/* Build-time configurable options.
+ * Override via build.sh: ./build.sh --rangefinder 0 --camera-dir 1
+ * Or directly: idf.py build -- -DCAMERA_DIRECTION=1
+ * Values here are defaults; -D flags from CMake take precedence. */
+#ifndef ENABLE_RANGE_FINDER
 #define ENABLE_RANGE_FINDER 1
+#endif
+#ifndef CAMERA_DIRECTION
 #define CAMERA_DIRECTION 0 // 0=downward, 1=upward
+#endif
+#ifndef OPTFLOW_METHOD_CROP
 #define OPTFLOW_METHOD_CROP 0 // 1=Center Crop (5x Zoom, High Sens), 0=Resize (Wide FOV)
+#endif
+#ifndef ENABLE_DEBUG_LOGGING
 #define ENABLE_DEBUG_LOGGING 0
+#endif
 
 #define platform_console(fmt, ...) printf(fmt, ##__VA_ARGS__)
 
