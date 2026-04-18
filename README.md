@@ -130,6 +130,7 @@ These can be overridden at build time via `build.sh` flags (no need to edit the 
 | `CAMERA_DIRECTION` | `0` | `--camera-dir 0\|1` | 0=downward, 1=upward |
 | `OPTFLOW_METHOD_CROP` | `0` | `--crop 0\|1` | 0=resize (wide FOV), 1=crop (zoom) |
 | `ENABLE_DEBUG_LOGGING` | `0` | `--debug-log 0\|1` | Enable telemetry `ESP_LOGI` output |
+| `ENABLE_FRAME_TRANSMISSION` | `0` | `--frame-tx 0\|1` | Stream raw camera frames over USB for `view_frame.py` |
 
 ## UART Protocol
 
@@ -146,14 +147,55 @@ Binary `'db'` framed packet (22 bytes total):
 ## Visualization Tools
 
 ```bash
-pip install matplotlib pyserial
+pip install matplotlib pyserial numpy
 ```
 
-| Tool | Purpose |
-|------|---------|
-| `tools/view_frame.py` | View raw 64×64 camera frames |
-| `tools/view_optflow.py` | View optical flow vectors |
-| `tools/visualize_flow.py` | Real-time dx, dy, quality plots |
+| Tool | Purpose | Firmware Requirement |
+|------|---------|---------------------|
+| `tools/view_optflow.py` | Live optical flow vectors, quality, range finder | `--debug-log 1` |
+| `tools/view_frame.py` | Live 64×64 camera frame viewer with histogram | `--frame-tx 1` |
+
+### view_optflow.py — Optical Flow Viewer
+
+Displays real-time flow dx/dy, surface quality, and range finder data parsed from `ESP_LOGI` debug output.
+
+```bash
+# 1. Build & flash with debug logging enabled
+cd base/boards/s3v1
+./build-flash.sh --debug-log 1
+
+# 2. Close any serial monitor (idf.py monitor, screen, etc.)
+
+# 3. Run the viewer
+python3 tools/view_optflow.py
+```
+
+### view_frame.py — Camera Frame Viewer
+
+Displays live 64×64 grayscale camera frames streamed as raw bytes over USB serial. Includes pixel histogram and frame statistics.
+
+**Important:** Frame transmission reduces optical flow rate from 25 Hz to ~5 Hz because raw pixel data (4 KB/frame) saturates the USB CDC link. Use for debugging only — disable for flight.
+
+```bash
+# 1. Build & flash with frame transmission enabled
+cd base/boards/s3v1
+./build-flash.sh --frame-tx 1
+
+# 2. Close the serial monitor (Ctrl+] or close the terminal)
+#    The monitor and view_frame.py cannot share the same serial port.
+
+# 3. Run the viewer
+python3 tools/view_frame.py
+
+# 4. When done, rebuild without --frame-tx to restore full 25 Hz performance
+./build-flash.sh
+```
+
+Frame protocol over USB serial:
+```
+FRAME_BIN <width> <height> <timestamp_us>\n<raw_bytes>
+```
+Where `<raw_bytes>` is `width × height` bytes of grayscale pixel data (no delimiter after binary data).
 
 ## Coding Rules
 

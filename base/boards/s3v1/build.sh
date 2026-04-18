@@ -10,6 +10,7 @@
 #   --camera-dir  0|1    Camera direction: 0=downward, 1=upward (default: 0)
 #   --crop        0|1    Optical flow method: 0=resize (wide FOV), 1=center crop (5x zoom) (default: 0)
 #   --debug-log   0|1    Enable debug logging via ESP_LOGI (default: 0)
+#   --frame-tx    0|1    Enable raw frame transmission for view_frame.py (default: 0)
 #   --clean               Clean build directory before building
 #
 # EXAMPLES:
@@ -32,6 +33,7 @@ RANGE_FINDER=""
 CAMERA_DIR=""
 CROP=""
 DEBUG_LOG=""
+FRAME_TX=""
 CLEAN=0
 
 # Parse arguments
@@ -45,6 +47,8 @@ while [[ $# -gt 0 ]]; do
             CROP="$2"; shift 2 ;;
         --debug-log)
             DEBUG_LOG="$2"; shift 2 ;;
+        --frame-tx)
+            FRAME_TX="$2"; shift 2 ;;
         --clean)
             CLEAN=1; shift ;;
         -h|--help)
@@ -86,6 +90,7 @@ CMAKE_DEFS=""
 [[ -n "$CAMERA_DIR" ]]   && CMAKE_DEFS="$CMAKE_DEFS -DCAMERA_DIRECTION=$CAMERA_DIR"
 [[ -n "$CROP" ]]         && CMAKE_DEFS="$CMAKE_DEFS -DOPTFLOW_METHOD_CROP=$CROP"
 [[ -n "$DEBUG_LOG" ]]    && CMAKE_DEFS="$CMAKE_DEFS -DENABLE_DEBUG_LOGGING=$DEBUG_LOG"
+[[ -n "$FRAME_TX" ]]     && CMAKE_DEFS="$CMAKE_DEFS -DENABLE_FRAME_TRANSMISSION=$FRAME_TX"
 
 # Print config
 echo "========================================"
@@ -106,7 +111,7 @@ fi
 
 # Build
 if [[ -n "$CMAKE_DEFS" ]]; then
-    idf.py build -- $CMAKE_DEFS
+    idf.py $CMAKE_DEFS build
 else
     idf.py build
 fi

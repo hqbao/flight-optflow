@@ -31,6 +31,7 @@ Designed with a strict **Event-Driven PubSub Architecture** — all inter-module
 
 5. **Configuration**
    - Hardware pins and feature flags: `base/boards/s3v1/board_config/platform.h`
+   - Frame transmission for debugging: `ENABLE_FRAME_TRANSMISSION` (build with `--frame-tx 1`)
 
 ## Data Flow
 
@@ -66,6 +67,7 @@ Designed with a strict **Event-Driven PubSub Architecture** — all inter-module
   - `=1`: Center crop 64×64 from 320×240 (5× digital zoom, FOV=13.2°, high sensitivity for hover)
   - `=0`: Bilinear resize full 240×240 square → 64×64 (full FOV=49.5°, better for fast flight)
 - **Task**: Priority 20 on Core 0, wakes via `xTaskNotifyGive`
+- **Frame Transmission** (when `ENABLE_FRAME_TRANSMISSION=1`): After each capture, copies the 64×64 frame to a TX buffer and notifies `frame_tx_task` (priority 5, Core 0) which sends `FRAME_BIN <W> <H> <timestamp>\n<raw_bytes>` over `stdout` (USB CDC). This reduces optical flow throughput from 25 Hz to ~5 Hz due to USB serial bandwidth — use for debugging only.
 
 ### Optical Flow (`modules/optical_flow/`)
 - **Input**: Subscribes to `SENSOR_CAMERA_FRAME`
@@ -108,6 +110,7 @@ Designed with a strict **Event-Driven PubSub Architecture** — all inter-module
 | 0 | `sched_c0_h` | 22 | High-band scheduler (1ms tick) |
 | 0 | `camera_task` | 20 | Camera capture + crop/resize |
 | 0 | `sched_c0_l` | 10 | Low-band scheduler (20ms tick) |
+| 0 | `frame_tx_task` | 5 | Raw frame USB transmission (only when `ENABLE_FRAME_TRANSMISSION=1`) |
 | 0 | (system) | — | WiFi, networking |
 | 1 | `sched_c1_h` | 22 | High-band scheduler (1ms tick) |
 | 1 | `optflow_task` | 20 | Optical flow calculation (dense math) |

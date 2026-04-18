@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-Optical Flow Visualizer
-Reads optical flow data from flight-optflow ESP32-S3 via serial monitor logs
-Displays real-time flow vectors and statistics
+Optical Flow Visualizer — flight-optflow ESP32-S3
+Reads ESP_LOGI debug output via USB serial monitor.
+
+Requires: --debug-log 1 at build time:
+  cd flight-optflow/base/boards/s3v1 && ./build.sh --debug-log 1
 """
 
 import serial
@@ -11,345 +13,334 @@ import re
 import threading
 import queue
 import numpy as np
+import matplotlib
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyArrow
+from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Button
 import time
 from collections import deque
 
-# --- Configuration ---
-SERIAL_PORT = None
-BAUD_RATE = 115200  # ESP32 monitor baud rate
-MOVING_AVG_WINDOW = 10  # Number of samples for moving average
+# ── Theme (matches flight-controller tools) ──────────────────────────────────
+BG_COLOR      = '#1e1e1e'
+PANEL_COLOR   = '#252526'
+TEXT_COLOR    = '#cccccc'
+DIM_TEXT      = '#888888'
+GRID_COLOR    = '#3c3c3c'
+BTN_COLOR     = '#333333'
+BTN_HOVER     = '#444444'
 
-# Auto-detect serial port
-ports = serial.tools.list_ports.comports()
-for port, desc, hwid in sorted(ports):
-    if 'usbmodem' in port or 'usbserial' in port or 'SLAB' in port:
-        SERIAL_PORT = port
-        break
+COLOR_DX      = '#4fc3f7'   # Cyan
+COLOR_DY      = '#81c784'   # Green
+COLOR_QUALITY = '#ffa726'   # Orange
+COLOR_RANGE   = '#ef5350'   # Red
+COLOR_ARROW   = '#5599ff'   # Blue
 
-if SERIAL_PORT is None:
-    print('No serial port found. Please configure manually.')
-    SERIAL_PORT = '/dev/cu.usbmodem1101'  # Default
+# ── Configuration ─────────────────────────────────────────────────────────────
+BAUD_RATE    = 115200
+HISTORY_LEN  = 300          # ~30s at 10 Hz / ~12s at 25 Hz
+ANIM_MS      = 40           # 25 Hz refresh
 
-print(f"Connecting to {SERIAL_PORT} at {BAUD_RATE} baud...")
-print("")
-print("=" * 60)
-print("ATTITUDE COMPENSATION TEST PROCEDURE:")
-print("=" * 60)
-print("1. Place sensor LEVEL on table, keep still for 5 seconds")
-print("   -> Watch 'Avg DX/DY' values (should be near 0)")
-print("")
-print("2. SLOWLY tilt forward ~10 degrees, hold for 3 seconds")
-print("   -> If compensation works: Avg DX/DY stay near 0")
-print("   -> If not working: Avg DY will spike to ~40-60mm")
-print("")
-print("3. SLOWLY tilt backward ~10 degrees, hold for 3 seconds")
-print("   -> Avg DY should stay near 0 (opposite direction)")
-print("")
-print("4. SLOWLY tilt left/right ~10 degrees")
-print("   -> Avg DX should stay near 0")
-print("=" * 60)
-print("")
+# ── Serial auto-detect ───────────────────────────────────────────────────────
+def find_serial_port():
+    for port, desc, hwid in sorted(serial.tools.list_ports.comports()):
+        if any(k in port for k in ('usbmodem', 'usbserial', 'SLAB')):
+            return port
+    return '/dev/cu.usbmodem1101'
 
-# --- Global State ---
-data_queue = queue.Queue(maxsize=1)  # Only keep latest sample for real-time response
-history_length = 50
-flow_history = deque(maxlen=history_length)
-dx_window = deque(maxlen=MOVING_AVG_WINDOW)
-dy_window = deque(maxlen=MOVING_AVG_WINDOW)
+# ── Global state ──────────────────────────────────────────────────────────────
+g_data_queue = queue.Queue(maxsize=4)
 
-# Statistics
-total_samples = 0
-avg_dx = 0
-avg_dy = 0
-avg_quality = 0
-avg_fps = 0
+g_hist = {
+    'time': deque(maxlen=HISTORY_LEN),
+    'dx':   deque(maxlen=HISTORY_LEN),
+    'dy':   deque(maxlen=HISTORY_LEN),
+    'qual': deque(maxlen=HISTORY_LEN),
+    'dist': deque(maxlen=HISTORY_LEN),
+    'fps':  deque(maxlen=HISTORY_LEN),
+}
 
-# --- Serial Reader ---
-def serial_reader():
-    """Parse ESP_LOGI output from telemetry.c"""
-    global total_samples, avg_dx, avg_dy, avg_quality, avg_fps
-    
-    try:
-        with serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1) as ser:
-            print(f"Connected to {SERIAL_PORT}")
-            
-            # Pattern: OF: dx=-0.12 	dy=0.34 	qual=56 	RF: dist=1234.5 	Freq: 24.8 Hz
-            pattern = re.compile(
-                r'OF:\s+dx=([-\d.]+)\s+dy=([-\d.]+)\s+qual=(\d+)\s+RF:\s+dist=([\d.]+)\s+Freq:\s+([\d.]+)\s+Hz'
-            )
-            
-            while True:
-                try:
-                    line = ser.readline().decode('utf-8', errors='ignore').strip()
-                    if not line:
+g_t0 = None
+g_fps_ts = 0.0
+g_fps_count = 0
+g_display_fps = 0.0
+
+# ── Serial reader thread ─────────────────────────────────────────────────────
+def serial_reader(port):
+    """Parse ESP_LOGI lines from flight-optflow telemetry.c"""
+    global g_t0
+
+    # OF: dx=0.0012 	dy=-0.0034 rad 	qual=56 	RF: dist=1234.5 	Freq: 24.8 Hz 	dt: 40000
+    pattern = re.compile(
+        r'OF:\s+dx=([-\d.]+)\s+dy=([-\d.]+)\s+rad\s+'
+        r'qual=(\d+)\s+RF:\s+dist=([\d.]+)\s+'
+        r'Freq:\s+([\d.]+)\s+Hz'
+    )
+
+    while True:
+        try:
+            with serial.Serial(port, BAUD_RATE, timeout=1) as ser:
+                print(f"[serial] connected to {port}")
+                while True:
+                    raw = ser.readline()
+                    if not raw:
                         continue
-                    
-                    match = pattern.search(line)
-                    if match:
-                        dx = float(match.group(1))
-                        dy = float(match.group(2))
-                        quality = int(match.group(3))
-                        distance = float(match.group(4))
-                        fps = float(match.group(5))
-                        
-                        # Update statistics
-                        total_samples += 1
-                        alpha = 0.1  # Moving average factor
-                        avg_dx = avg_dx * (1 - alpha) + dx * alpha
-                        avg_dy = avg_dy * (1 - alpha) + dy * alpha
-                        
-                        # Add to moving average windows
-                        dx_window.append(dx)
-                        dy_window.append(dy)
-                        avg_quality = avg_quality * (1 - alpha) + quality * alpha
-                        avg_fps = avg_fps * (1 - alpha) + fps * alpha
-                        
-                        data = {
-                            'dx': dx,
-                            'dy': dy,
-                            'quality': quality,
-                            'distance': distance,
-                            'fps': fps,
-                            'timestamp': time.time()
-                        }
-                        
-                        # Drop old data if queue is full for real-time response
-                        if data_queue.full():
-                            try:
-                                data_queue.get_nowait()
-                            except queue.Empty:
-                                pass
-                        data_queue.put(data)
-                        flow_history.append((dx, dy, quality))
-                        
-                except UnicodeDecodeError:
-                    continue
-                except Exception as e:
-                    print(f"Parse error: {e}")
-                    continue
-                    
-    except Exception as e:
-        print(f"Serial error: {e}")
+                    line = raw.decode('utf-8', errors='ignore').strip()
+                    m = pattern.search(line)
+                    if not m:
+                        continue
 
-# --- GUI ---
+                    now = time.time()
+                    if g_t0 is None:
+                        g_t0 = now
+
+                    sample = {
+                        't':    now - g_t0,
+                        'dx':   float(m.group(1)),
+                        'dy':   float(m.group(2)),
+                        'qual': int(m.group(3)),
+                        'dist': float(m.group(4)),
+                        'fps':  float(m.group(5)),
+                    }
+
+                    if g_data_queue.full():
+                        try:
+                            g_data_queue.get_nowait()
+                        except queue.Empty:
+                            pass
+                    g_data_queue.put(sample)
+
+        except serial.SerialException as e:
+            print(f"[serial] {e} — retrying in 2s")
+            time.sleep(2)
+        except Exception as e:
+            print(f"[serial] unexpected: {e}")
+            time.sleep(1)
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def style_axis(ax, title, ylabel, title_color=TEXT_COLOR):
+    ax.set_facecolor(PANEL_COLOR)
+    ax.set_title(title, fontsize=10, fontweight='bold', color=title_color,
+                 loc='left', pad=6)
+    ax.set_ylabel(ylabel, fontsize=8, color=DIM_TEXT)
+    ax.tick_params(colors=DIM_TEXT, labelsize=7)
+    ax.grid(True, color=GRID_COLOR, linewidth=0.5, alpha=0.4, linestyle=':')
+    ax.axhline(0, color=GRID_COLOR, linewidth=0.5, alpha=0.5)
+    for spine in ax.spines.values():
+        spine.set_color(GRID_COLOR)
+
+def auto_ylim(ax, arrays, margin_frac=0.25, min_range=0.005):
+    vals = np.concatenate([np.array(a) for a in arrays if len(a)])
+    if len(vals) == 0:
+        return
+    lo, hi = float(vals.min()), float(vals.max())
+    span = hi - lo
+    if span < min_range:
+        mid = (lo + hi) / 2
+        lo, hi = mid - min_range / 2, mid + min_range / 2
+        span = min_range
+    m = span * margin_frac
+    ax.set_ylim(lo - m, hi + m)
+
+# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    global flow_history, total_samples, avg_dx, avg_dy, avg_quality, avg_fps
-    
-    # Start serial reader thread
-    t = threading.Thread(target=serial_reader, daemon=True)
+    global g_fps_ts, g_fps_count, g_display_fps, g_t0
+
+    port = find_serial_port()
+    print(f"Using serial port: {port}")
+
+    t = threading.Thread(target=serial_reader, args=(port,), daemon=True)
     t.start()
-    
-    # Create figure with subplots
-    fig = plt.figure(figsize=(16, 10))
-    
-    # Main flow vector display (large)
-    ax_main = plt.subplot2grid((3, 3), (0, 0), colspan=2, rowspan=2)
-    ax_main.set_xlim(-50, 50)
-    ax_main.set_ylim(-50, 50)
-    ax_main.set_xlabel('X Flow (mm)')
-    ax_main.set_ylabel('Y Flow (mm)')
-    ax_main.set_title('Optical Flow Vector (Real-Time)', fontsize=14, fontweight='bold')
-    ax_main.grid(True, alpha=0.3)
-    ax_main.axhline(0, color='k', linewidth=0.5)
-    ax_main.axvline(0, color='k', linewidth=0.5)
-    
-    # Current vector arrow
-    current_arrow = None
-    
-    # History trail
-    trail_line, = ax_main.plot([], [], 'b-', alpha=0.3, linewidth=1, label='Trail')
-    trail_scatter = ax_main.scatter([], [], c=[], cmap='viridis', s=20, alpha=0.6, vmin=0, vmax=100)
-    
-    # Time series plots
-    ax_dx = plt.subplot2grid((3, 3), (0, 2))
-    ax_dx.set_title('DX (mm) vs Time')
-    ax_dx.set_ylim(-50, 50)
-    ax_dx.grid(True, alpha=0.3)
-    line_dx, = ax_dx.plot([], [], 'r-', linewidth=2)
-    
-    ax_dy = plt.subplot2grid((3, 3), (1, 2))
-    ax_dy.set_title('DY (mm) vs Time')
-    ax_dy.set_ylim(-50, 50)
-    ax_dy.grid(True, alpha=0.3)
-    line_dy, = ax_dy.plot([], [], 'g-', linewidth=2)
-    
-    ax_qual = plt.subplot2grid((3, 3), (2, 0))
-    ax_qual.set_title('Quality vs Time')
-    ax_qual.set_xlabel('Sample')
-    ax_qual.set_ylim(0, 100)
-    ax_qual.grid(True, alpha=0.3)
-    line_qual, = ax_qual.plot([], [], 'orange', linewidth=2)
-    
-    # Statistics display
-    ax_stats = plt.subplot2grid((3, 3), (2, 1), colspan=2)
-    ax_stats.axis('off')
-    stats_text = ax_stats.text(0.1, 0.5, '', fontsize=12, family='monospace',
-                               verticalalignment='center',
-                               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    
-    # Control buttons
-    plt.subplots_adjust(bottom=0.12, right=0.95, top=0.95, left=0.08, hspace=0.3, wspace=0.3)
-    
-    ax_clear = plt.axes([0.35, 0.02, 0.12, 0.05])
-    btn_clear = Button(ax_clear, 'Clear History')
-    
-    ax_scale = plt.axes([0.5, 0.02, 0.12, 0.05])
-    btn_scale = Button(ax_scale, 'Auto Scale')
-    
-    scale_mode = [False]  # Use list for mutability in closure
-    
-    def clear_history(event):
-        flow_history.clear()
-        print("History cleared")
-    
-    def toggle_scale(event):
-        scale_mode[0] = not scale_mode[0]
-        btn_scale.label.set_text('Fixed Scale' if scale_mode[0] else 'Auto Scale')
-        print(f"Scale mode: {'Auto' if scale_mode[0] else 'Fixed'}")
-    
-    btn_clear.on_clicked(clear_history)
-    btn_scale.on_clicked(toggle_scale)
-    
-    # Animation update function
+
+    # ── Figure layout ─────────────────────────────────────────────────────────
+    plt.rcParams.update({
+        'figure.facecolor': BG_COLOR,
+        'axes.facecolor':   PANEL_COLOR,
+        'text.color':       TEXT_COLOR,
+    })
+
+    fig = plt.figure(figsize=(15, 9))
+    fig.canvas.manager.set_window_title('Optical Flow Visualizer — flight-optflow')
+
+    # 4 time-series rows + vector panel + stats panel
+    ax_dx   = fig.add_axes([0.07, 0.76, 0.58, 0.18])
+    ax_dy   = fig.add_axes([0.07, 0.54, 0.58, 0.18])
+    ax_qual = fig.add_axes([0.07, 0.32, 0.58, 0.18])
+    ax_dist = fig.add_axes([0.07, 0.10, 0.58, 0.18])
+
+    ax_vec  = fig.add_axes([0.72, 0.40, 0.26, 0.54])
+    ax_info = fig.add_axes([0.72, 0.10, 0.26, 0.26])
+
+    style_axis(ax_dx,   'Optical Flow DX', 'rad',  COLOR_DX)
+    style_axis(ax_dy,   'Optical Flow DY', 'rad',  COLOR_DY)
+    style_axis(ax_qual, 'Quality',         '',      COLOR_QUALITY)
+    style_axis(ax_dist, 'Range Finder',    'mm',    COLOR_RANGE)
+    ax_dist.set_xlabel('Time (s)', fontsize=8, color=DIM_TEXT)
+
+    # Vector display
+    ax_vec.set_facecolor(PANEL_COLOR)
+    ax_vec.set_title('Flow Vector', fontsize=10, fontweight='bold',
+                     color=COLOR_ARROW, loc='left', pad=6)
+    ax_vec.set_aspect('equal')
+    ax_vec.grid(True, color=GRID_COLOR, linewidth=0.5, alpha=0.3, linestyle=':')
+    ax_vec.axhline(0, color=GRID_COLOR, linewidth=0.5, alpha=0.5)
+    ax_vec.axvline(0, color=GRID_COLOR, linewidth=0.5, alpha=0.5)
+    ax_vec.set_xlabel('DY (rad)', fontsize=8, color=DIM_TEXT)
+    ax_vec.set_ylabel('DX (rad)', fontsize=8, color=DIM_TEXT)
+    ax_vec.tick_params(colors=DIM_TEXT, labelsize=7)
+    for spine in ax_vec.spines.values():
+        spine.set_color(GRID_COLOR)
+
+    # Info panel
+    ax_info.set_facecolor(PANEL_COLOR)
+    ax_info.axis('off')
+    for spine in ax_info.spines.values():
+        spine.set_color(GRID_COLOR)
+
+    # ── Plot lines ────────────────────────────────────────────────────────────
+    line_dx,   = ax_dx.plot([], [], color=COLOR_DX, linewidth=1.2)
+    line_dy,   = ax_dy.plot([], [], color=COLOR_DY, linewidth=1.2)
+    line_qual, = ax_qual.plot([], [], color=COLOR_QUALITY, linewidth=1.2)
+    line_dist, = ax_dist.plot([], [], color=COLOR_RANGE, linewidth=1.2)
+
+    # Value labels (top-right of each axis)
+    _tv = dict(fontfamily='monospace', fontsize=9, fontweight='bold', ha='right', va='top')
+    txt_dx   = ax_dx.text(0.98, 0.92, '', color=COLOR_DX, transform=ax_dx.transAxes, **_tv)
+    txt_dy   = ax_dy.text(0.98, 0.92, '', color=COLOR_DY, transform=ax_dy.transAxes, **_tv)
+    txt_qual = ax_qual.text(0.98, 0.92, '', color=COLOR_QUALITY, transform=ax_qual.transAxes, **_tv)
+    txt_dist = ax_dist.text(0.98, 0.92, '', color=COLOR_RANGE, transform=ax_dist.transAxes, **_tv)
+
+    # Vector display elements
+    trail_scatter = ax_vec.scatter([], [], c=[], cmap='coolwarm', s=12,
+                                   alpha=0.4, vmin=0, vmax=100, zorder=1)
+    arrow_line, = ax_vec.plot([], [], color=COLOR_ARROW, linewidth=2.5,
+                              solid_capstyle='round', zorder=3)
+    arrow_head, = ax_vec.plot([], [], 'o', color=COLOR_ARROW, markersize=7, zorder=4)
+
+    # Info text
+    info_text = ax_info.text(0.08, 0.92, '', fontfamily='monospace', fontsize=9,
+                             color=TEXT_COLOR, va='top', transform=ax_info.transAxes,
+                             linespacing=1.6)
+
+    # ── Button ────────────────────────────────────────────────────────────────
+    ax_btn_clear = fig.add_axes([0.005, 0.005, 0.08, 0.04])
+    btn_clear = Button(ax_btn_clear, 'Clear', color=BTN_COLOR, hovercolor=BTN_HOVER)
+    btn_clear.label.set_fontsize(8)
+    btn_clear.label.set_color(TEXT_COLOR)
+
+    def on_clear(event):
+        global g_t0
+        for v in g_hist.values():
+            v.clear()
+        g_t0 = None
+
+    btn_clear.on_clicked(on_clear)
+
+    # ── Animation ─────────────────────────────────────────────────────────────
     def update(frame):
-        nonlocal current_arrow
-        
-        # Get only the latest data (discard any buffered old samples)
-        latest_data = None
-        while not data_queue.empty():
+        global g_fps_ts, g_fps_count, g_display_fps
+
+        # Drain queue — append every sample to history
+        latest = None
+        while not g_data_queue.empty():
             try:
-                latest_data = data_queue.get_nowait()
+                latest = g_data_queue.get_nowait()
             except queue.Empty:
                 break
-        
-        if latest_data is None:
+            g_hist['time'].append(latest['t'])
+            g_hist['dx'].append(latest['dx'])
+            g_hist['dy'].append(latest['dy'])
+            g_hist['qual'].append(latest['qual'])
+            g_hist['dist'].append(latest['dist'])
+            g_hist['fps'].append(latest['fps'])
+
+        if latest is None:
             return
-        
-        dx = latest_data['dx']
-        dy = latest_data['dy']
-        quality = latest_data['quality']
-        distance = latest_data['distance']
-        fps = latest_data['fps']
-        
-        # Update main arrow - safely remove old one
-        if current_arrow is not None:
-            try:
-                current_arrow.remove()
-            except (ValueError, AttributeError):
-                pass  # Arrow already removed or invalid
-            current_arrow = None
-        
-        # Arrow color based on quality
-        color = 'green' if quality > 50 else 'orange' if quality > 20 else 'red'
-        arrow_width = 0.3 + (quality / 100.0) * 0.5  # Thickness indicates quality
-        
-        if abs(dx) > 0.1 or abs(dy) > 0.1:  # Only draw if significant movement
-            current_arrow = FancyArrow(0, 0, dx, dy,
-                                      width=arrow_width,
-                                      head_width=arrow_width*3,
-                                      head_length=3,
-                                      fc=color, ec='black',
-                                      alpha=0.8, length_includes_head=True)
-            ax_main.add_patch(current_arrow)
-        
-        # Update trail
-        if len(flow_history) > 1:
-            dx_hist = [f[0] for f in flow_history]
-            dy_hist = [f[1] for f in flow_history]
-            qual_hist = [f[2] for f in flow_history]
-            
-            trail_line.set_data(dx_hist, dy_hist)
-            trail_scatter.set_offsets(np.c_[dx_hist, dy_hist])
-            trail_scatter.set_array(np.array(qual_hist))
-        
-        # Auto scale if enabled
-        if scale_mode[0] and len(flow_history) > 5:
-            dx_vals = [f[0] for f in flow_history]
-            dy_vals = [f[1] for f in flow_history]
-            max_range = max(max(abs(min(dx_vals)), abs(max(dx_vals))),
-                          max(abs(min(dy_vals)), abs(max(dy_vals)))) * 1.2
-            max_range = max(max_range, 5)  # Minimum range
-            ax_main.set_xlim(-max_range, max_range)
-            ax_main.set_ylim(-max_range, max_range)
-        
-        # Update time series
-        if len(flow_history) > 1:
-            x_range = list(range(len(flow_history)))
-            dx_series = [f[0] for f in flow_history]
-            dy_series = [f[1] for f in flow_history]
-            qual_series = [f[2] for f in flow_history]
-            
-            line_dx.set_data(x_range, dx_series)
-            ax_dx.set_xlim(0, max(len(flow_history), 10))
-            
-            line_dy.set_data(x_range, dy_series)
-            ax_dy.set_xlim(0, max(len(flow_history), 10))
-            
-            line_qual.set_data(x_range, qual_series)
-            ax_qual.set_xlim(0, max(len(flow_history), 10))
-        
-        # Update statistics
-        magnitude = np.sqrt(dx**2 + dy**2)
-        direction = np.degrees(np.arctan2(dy, dx)) if magnitude > 0.1 else 0
-        
-        # Calculate moving averages from windows
-        ma_dx = np.mean(dx_window) if len(dx_window) > 0 else 0
-        ma_dy = np.mean(dy_window) if len(dy_window) > 0 else 0
+
+        n = len(g_hist['time'])
+        if n < 2:
+            return
+
+        ta = np.array(g_hist['time'])
+
+        # ── Time-series ───────────────────────────────────────────────────
+        line_dx.set_data(ta, np.array(g_hist['dx']))
+        line_dy.set_data(ta, np.array(g_hist['dy']))
+        line_qual.set_data(ta, np.array(g_hist['qual']))
+        line_dist.set_data(ta, np.array(g_hist['dist']))
+
+        x0, x1 = ta[0], ta[-1] + 0.1
+        for a in (ax_dx, ax_dy, ax_qual, ax_dist):
+            a.set_xlim(x0, x1)
+
+        auto_ylim(ax_dx,   [g_hist['dx']],   min_range=0.005)
+        auto_ylim(ax_dy,   [g_hist['dy']],   min_range=0.005)
+        auto_ylim(ax_qual, [g_hist['qual']], min_range=10)
+        auto_ylim(ax_dist, [g_hist['dist']], min_range=50)
+
+        txt_dx.set_text(f"{latest['dx']:+.4f} rad")
+        txt_dy.set_text(f"{latest['dy']:+.4f} rad")
+        txt_qual.set_text(f"{latest['qual']}")
+        txt_dist.set_text(f"{latest['dist']:.0f} mm")
+
+        # ── Vector display ────────────────────────────────────────────────
+        dx_arr = np.array(g_hist['dx'])
+        dy_arr = np.array(g_hist['dy'])
+        q_arr  = np.array(g_hist['qual'])
+
+        trail_scatter.set_offsets(np.c_[dy_arr, dx_arr])
+        trail_scatter.set_array(q_arr)
+
+        cx, cy = latest['dy'], latest['dx']
+        arrow_line.set_data([0, cx], [0, cy])
+        arrow_head.set_data([cx], [cy])
+
+        all_v = np.concatenate([np.abs(dx_arr), np.abs(dy_arr)])
+        vmax = max(float(all_v.max()) * 1.3, 0.005) if len(all_v) else 0.01
+        ax_vec.set_xlim(-vmax, vmax)
+        ax_vec.set_ylim(-vmax, vmax)
+
+        # ── Info panel ────────────────────────────────────────────────────
+        now = time.time()
+        g_fps_count += 1
+        if now - g_fps_ts >= 1.0:
+            g_display_fps = g_fps_count / (now - g_fps_ts)
+            g_fps_count = 0
+            g_fps_ts = now
+
+        mag = np.sqrt(cx**2 + cy**2)
+        deg = np.degrees(np.arctan2(cy, cx)) if mag > 1e-6 else 0
+
+        w = min(10, n)
+        ma_dx = np.mean(list(g_hist['dx'])[-w:])
+        ma_dy = np.mean(list(g_hist['dy'])[-w:])
         ma_mag = np.sqrt(ma_dx**2 + ma_dy**2)
-        
-        stats_str = (
-            f"CURRENT: DX={dx:+6.2f}  DY={dy:+6.2f}  Q={quality:3d}\n"
-            f"                                        \n"
-            f"Moving Avg ({MOVING_AVG_WINDOW} samples):\n"
-            f"  DX = {ma_dx:+7.2f} mm\n"
-            f"  DY = {ma_dy:+7.2f} mm\n"
-            f"  MAG = {ma_mag:6.2f} mm\n"
-            f"                                        \n"
-            f"Expected if compensation works:\n"
-            f"  Level: DX,DY ≈ ±2mm\n"
-            f"  Tilted 10°: DX,DY still ≈ ±2mm\n"
-            f"                                        \n"
-            f"Samples: {total_samples}  FPS: {fps:.1f}"
+
+        info_text.set_text(
+            f"  CURRENT\n"
+            f"  DX   {cx:+.4f} rad\n"
+            f"  DY   {cy:+.4f} rad\n"
+            f"  Mag  {mag:.4f} rad\n"
+            f"  Dir  {deg:+.1f}\u00b0\n"
+            f"\n"
+            f"  AVERAGE (10)\n"
+            f"  DX   {ma_dx:+.4f} rad\n"
+            f"  DY   {ma_dy:+.4f} rad\n"
+            f"  Mag  {ma_mag:.4f} rad\n"
+            f"\n"
+            f"  Sensor  {latest['fps']:.1f} Hz\n"
+            f"  Range   {latest['dist']:.0f} mm\n"
+            f"  Quality {latest['qual']}\n"
+            f"  UI FPS  {g_display_fps:.0f}"
         )
-        
-        stats_text.set_text(stats_str)
-    
-    # Start animation at 50Hz for smooth real-time updates (faster than data rate)
-    from matplotlib.animation import FuncAnimation
-    anim = FuncAnimation(fig, update, interval=20, blit=False)  # 20ms = 50Hz
-    
+
+    anim = FuncAnimation(fig, update, interval=ANIM_MS,
+                         blit=False, cache_frame_data=False)
     plt.show()
 
+# ── Entry ─────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
-    print("""
-╔═══════════════════════════════════════════════════════════════╗
-║          OPTICAL FLOW VISUALIZER - flight-optflow             ║
-╚═══════════════════════════════════════════════════════════════╝
-
-Instructions:
-  1. Connect flight-optflow ESP32-S3 via USB
-  2. Ensure flight-controller is sending attitude vectors
-  3. Monitor will display real-time flow vectors
-  4. Green arrows = high quality, Red = low quality
-  5. Arrow thickness indicates tracking confidence
-
-Controls:
-  - Clear History: Reset trail visualization
-  - Auto Scale: Toggle between fixed/auto axis scaling
-  - Close window to exit
-
-Interpretation:
-  - DX/DY: Movement in mm (compensated for tilt)
-  - Quality: Feature tracking confidence (0-100)
-  - Distance: Range finder altitude in mm
-  - FPS: Frame processing rate
-
-""")
-    
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nShutting down...")
+    print("Optical Flow Visualizer \u2014 flight-optflow")
+    print("Build with: ./build.sh --debug-log 1")
+    print()
+    main()

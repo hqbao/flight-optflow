@@ -19,6 +19,9 @@
 #ifndef ENABLE_DEBUG_LOGGING
 #define ENABLE_DEBUG_LOGGING 0
 #endif
+#ifndef ENABLE_FRAME_TRANSMISSION
+#define ENABLE_FRAME_TRANSMISSION 0 // 1=send raw frames over USB for view_frame.py (~5 Hz)
+#endif
 
 #define platform_console(fmt, ...) printf(fmt, ##__VA_ARGS__)
 

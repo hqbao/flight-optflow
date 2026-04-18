@@ -7,12 +7,28 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <image_util.h>
+#include <string.h>
 
 #define TAG "camera"
 
 static uint8_t g_frame_buffer[CAM_WIDTH * CAM_HEIGHT];
 static camera_frame_t g_camera_msg;
 static TaskHandle_t g_camera_task_handle = NULL;
+
+#if ENABLE_FRAME_TRANSMISSION
+static uint8_t g_tx_frame[CAM_WIDTH * CAM_HEIGHT];
+static uint32_t g_tx_timestamp;
+static TaskHandle_t g_frame_tx_handle = NULL;
+
+static void frame_tx_task(void *arg) {
+    while (1) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        printf("FRAME_BIN %d %d %lu\n", CAM_WIDTH, CAM_HEIGHT, (unsigned long)g_tx_timestamp);
+        fwrite(g_tx_frame, 1, CAM_WIDTH * CAM_HEIGHT, stdout);
+        fflush(stdout);
+    }
+}
+#endif
 
 static void trigger_camera(uint8_t *data, size_t size) {
     if (g_camera_task_handle) {
@@ -56,6 +72,13 @@ static void camera_task(void *arg) {
         g_camera_msg.timestamp = (uint32_t)esp_timer_get_time();
 
         publish(SENSOR_CAMERA_FRAME, (uint8_t*)&g_camera_msg, sizeof(camera_frame_t));
+
+#if ENABLE_FRAME_TRANSMISSION
+        // Copy frame for async transmission (non-blocking)
+        memcpy(g_tx_frame, g_frame_buffer, CAM_WIDTH * CAM_HEIGHT);
+        g_tx_timestamp = g_camera_msg.timestamp;
+        xTaskNotifyGive(g_frame_tx_handle);
+#endif
     }
 }
 
@@ -105,4 +128,8 @@ void camera_setup(void) {
 
     subscribe(SCHEDULER_CORE0_HP_25HZ, trigger_camera);
     xTaskCreatePinnedToCore(camera_task, "camera_task", 8192, NULL, 20, &g_camera_task_handle, 0);
+
+#if ENABLE_FRAME_TRANSMISSION
+    xTaskCreatePinnedToCore(frame_tx_task, "frame_tx", 4096, NULL, 5, &g_frame_tx_handle, 0);
+#endif
 }
